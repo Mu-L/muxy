@@ -15,6 +15,8 @@ struct ProjectStatusBar: View {
     let richInputVisible: Bool
     @Binding var richInputFontSize: Double
     @Binding var extensionOutputVisible: Bool
+    var onTriggerExtensionCommand: ((ExtensionStore.StatusBarItemBinding) -> Void)?
+    @Environment(ExtensionStore.self) private var extensionStore
 
     private var richInputShortcutLabel: String {
         KeyBindingStore.shared.combo(for: .toggleRichInput).displayString
@@ -26,31 +28,9 @@ struct ProjectStatusBar: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            if let statusContext {
-                pathButton(statusContext.path)
-                if let worktreeName = statusContext.worktreeName {
-                    separator
-                    worktreeLabel(worktreeName)
-                }
-                if let branch = statusContext.branch {
-                    separator
-                    branchLabel(branch)
-                }
-            }
+            leftSide
             Spacer(minLength: 8)
-            extensionOutputChip
-            separator
-            if richInputVisible {
-                zoomControls
-                separator
-                shortcutHints
-                separator
-            }
-            if activePane != nil {
-                richInputToggleButton
-                separator
-                voiceRecordingButton
-            }
+            rightSide
         }
         .padding(.horizontal, 10)
         .frame(height: 28)
@@ -61,6 +41,50 @@ struct ProjectStatusBar: View {
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Status bar")
+    }
+
+    private var leftSide: some View {
+        HStack(spacing: 8) {
+            if let statusContext {
+                pathButton(statusContext.path)
+                separator
+                if let worktreeName = statusContext.worktreeName {
+                    worktreeLabel(worktreeName)
+                    separator
+                }
+                if let branch = statusContext.branch {
+                    branchLabel(branch)
+                    separator
+                }
+            }
+            ForEach(extensionStore.statusBarItems(side: .left)) { binding in
+                extensionItem(binding: binding)
+                separator
+            }
+        }
+    }
+
+    private var rightSide: some View {
+        HStack(spacing: 8) {
+            separator
+            extensionOutputChip
+            ForEach(extensionStore.statusBarItems(side: .right)) { binding in
+                separator
+                extensionItem(binding: binding)
+            }
+            if richInputVisible {
+                separator
+                zoomControls
+                separator
+                shortcutHints
+            }
+            if activePane != nil {
+                separator
+                richInputToggleButton
+                separator
+                voiceRecordingButton
+            }
+        }
     }
 
     private var statusContext: StatusContext? {
@@ -151,6 +175,29 @@ struct ProjectStatusBar: View {
             .frame(width: 1)
             .frame(maxHeight: .infinity)
             .accessibilityHidden(true)
+    }
+
+    private func extensionItem(binding: ExtensionStore.StatusBarItemBinding) -> some View {
+        Button {
+            onTriggerExtensionCommand?(binding)
+        } label: {
+            HStack(spacing: 4) {
+                ExtensionIconView(
+                    icon: binding.item.icon,
+                    muxyExtension: binding.muxyExtension,
+                    size: 10
+                )
+                if let text = binding.displayText, !text.isEmpty {
+                    Text(text)
+                        .font(.system(size: 11, weight: .medium))
+                        .lineLimit(1)
+                }
+            }
+            .foregroundStyle(MuxyTheme.fgMuted)
+        }
+        .buttonStyle(.plain)
+        .help(binding.item.tooltip ?? binding.item.id)
+        .accessibilityLabel(binding.item.tooltip ?? binding.item.id)
     }
 
     private var extensionOutputChip: some View {

@@ -56,6 +56,8 @@ struct MuxyApp: App {
                 .environment(GhosttyService.shared)
                 .environment(MuxyConfig.shared)
                 .environment(ThemeService.shared)
+                .environment(ExtensionStore.shared)
+                .environment(ExtensionSettingsStore.shared)
                 .preferredColorScheme(MuxyTheme.colorScheme)
                 .onAppear {
                     startDeferredServicesIfNeeded()
@@ -450,6 +452,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             rootView: SettingsView()
                 .frame(width: 980, height: 680)
                 .preferredColorScheme(MuxyTheme.colorScheme)
+                .environment(ExtensionStore.shared)
+                .environment(ExtensionSettingsStore.shared)
         )
         let window = SettingsModalWindow(contentViewController: host)
         window.title = "Settings"

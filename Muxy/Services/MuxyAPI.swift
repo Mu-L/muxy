@@ -131,6 +131,14 @@ enum MuxyAPI {
             cliAliases[verb] ?? verb
         }
 
+        static let verbNames: Set<String> = Set(cliAliases.keys).union(extensionVerbs)
+
+        private static let extensionVerbs: Set<String> = [
+            "extension.settings.get",
+            "extension.settings.set",
+            "extension.statusbar.set",
+        ]
+
         private static let cliAliases: [String: String] = [
             "split-right": "panes.split",
             "split-down": "panes.split",
