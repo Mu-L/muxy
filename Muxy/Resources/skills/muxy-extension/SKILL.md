@@ -5,7 +5,7 @@ description: Use when authoring or modifying a Muxy extension. Covers manifest f
 
 # Muxy Extension Author Guide
 
-Muxy extensions live in `~/.config/muxy/extensions/<name>/` and load when Muxy starts. Each extension is a directory containing a `manifest.json`. An executable entrypoint is optional — declare one only when the extension needs to receive pushed events. Optional resources (HTML tabs, scripts, icons, assets) live alongside.
+Muxy extensions live in `~/.config/muxy/extensions/<name>/` and load when Muxy starts. Each extension is a directory containing a `manifest.json`. An executable entrypoint is optional and most extensions don't need one — declaring an entrypoint makes Muxy keep a long-lived subprocess running for the whole lifetime of the extension, so add one only when the extension needs to receive pushed events. Optional resources (HTML tabs, scripts, icons, assets) live alongside.
 
 ## When to use this skill
 
@@ -117,7 +117,7 @@ Field-by-field:
 - `name` — required. Alphanumerics, dash, underscore, dot only. Must match the directory name.
 - `version` — required semver string.
 - `description` — optional one-line summary shown in the Extensions modal.
-- `entrypoint` — optional relative path. When present, must exist and be executable; Muxy launches it as a long-lived subprocess. Provide it only to receive pushed events — command, topbar, status bar, tab, and `runScript` extensions need none.
+- `entrypoint` — optional relative path. When present, must exist and be executable; Muxy launches it as a long-lived subprocess that stays running for the lifetime of the extension. Provide it only to receive pushed events — command, topbar, status bar, tab, and `runScript` extensions need none, and omitting it means Muxy keeps no resident process.
 - `permissions` — array of permission strings. Declare only what the entrypoint or tabs actually use.
 - `events` — array of event names this extension subscribes to (for example `pane.created`, `tab.focused`, `pane.closed`). Command events (`command.<id>`) are auto-allowed.
 - `tabTypes` — declares HTML pages renderable as tabs.

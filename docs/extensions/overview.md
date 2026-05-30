@@ -2,7 +2,7 @@
 
 > **Status:** under active development. The manifest format, permission set, and event wire format may change without notice. Marked **DEV** in Settings.
 
-Extensions are user-installed subprocesses that Muxy launches and talks to over the existing notification Unix socket. They can react to workspace events, register palette commands, and (with permission) drive the same verbs the `muxy` CLI exposes.
+Extensions are user-installed directories that Muxy loads and talks to over the existing notification Unix socket. They can react to workspace events, register palette commands, and (with permission) drive the same verbs the `muxy` CLI exposes. Most extensions are manifest-only and run no process; an extension keeps a long-lived subprocess running only when it declares an `entrypoint` to receive pushed events.
 
 ```mermaid
 flowchart TB

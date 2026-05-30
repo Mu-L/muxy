@@ -2,7 +2,7 @@
 
 > **Status:** under active development. Marked **DEV** in **Settings → Extensions**. The manifest format, permission set, and wire format may change without notice.
 
-User-installed subprocesses that Muxy launches and talks to over the existing notification Unix socket. Extensions can react to workspace events, register palette commands, post notifications, and (with permission) drive the same verbs the `muxy` CLI exposes.
+User-installed directories that Muxy loads and talks to over the existing notification Unix socket. Extensions can react to workspace events, register palette commands, post notifications, and (with permission) drive the same verbs the `muxy` CLI exposes. Most need no entrypoint; Muxy keeps a long-lived subprocess only for extensions that declare one to receive pushed events.
 
 ## Pages
 
@@ -31,6 +31,28 @@ User-installed subprocesses that Muxy launches and talks to over the existing no
 - See [the muxy CLI feature page](../features/muxy-cli.md) for the verb vocabulary
 
 ## Minimal example
+
+Most extensions need no entrypoint. A manifest alone registers commands, topbar/status bar items, tabs, and `runScript` handlers, and Muxy keeps no resident process for it:
+
+```
+~/.config/muxy/extensions/hello/
+  manifest.json
+```
+
+```json
+{
+  "name": "hello",
+  "version": "0.1.0",
+  "permissions": ["notifications:write"],
+  "commands": [
+    { "id": "ping", "title": "Hello: Ping" }
+  ]
+}
+```
+
+## Example with an entrypoint
+
+Add an `entrypoint` **only** to receive pushed events. Muxy then launches it as a long-lived subprocess that stays running for the lifetime of the extension:
 
 ```
 ~/.config/muxy/extensions/hello/
