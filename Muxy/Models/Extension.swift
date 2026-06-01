@@ -476,6 +476,23 @@ struct ExtensionManifest: Codable, Equatable {
         settings = try container.decodeIfPresent([ExtensionSettingEntry].self, forKey: .settings) ?? []
     }
 
+    init(package: PackageManifest) {
+        let muxy = package.muxy
+        name = package.name
+        version = package.version
+        description = muxy.description
+        background = muxy.background
+        events = muxy.events
+        commands = muxy.commands
+        tabTypes = muxy.tabTypes
+        panels = muxy.panels
+        popovers = muxy.popovers
+        permissions = muxy.permissions
+        topbarItems = muxy.topbarItems
+        statusBarItems = muxy.statusBarItems
+        settings = muxy.settings
+    }
+
     func tabType(id: String) -> ExtensionTabType? {
         tabTypes.first { $0.id == id }
     }
@@ -497,12 +514,68 @@ struct ExtensionManifest: Codable, Equatable {
     }
 }
 
+struct PackageManifest: Codable, Equatable {
+    let name: String
+    let version: String
+    let muxy: MuxyManifestBody
+
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case version
+        case muxy
+    }
+}
+
+struct MuxyManifestBody: Codable, Equatable {
+    let description: String?
+    let background: String?
+    let events: [String]
+    let commands: [ExtensionPaletteCommand]
+    let tabTypes: [ExtensionTabType]
+    let panels: [ExtensionPanel]
+    let popovers: [ExtensionPopover]
+    let permissions: [ExtensionPermission]
+    let topbarItems: [ExtensionTopbarItem]
+    let statusBarItems: [ExtensionStatusBarItem]
+    let settings: [ExtensionSettingEntry]
+
+    private enum CodingKeys: String, CodingKey {
+        case description
+        case background
+        case events
+        case commands
+        case tabTypes
+        case panels
+        case popovers
+        case permissions
+        case topbarItems
+        case statusBarItems
+        case settings
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        background = try container.decodeIfPresent(String.self, forKey: .background)
+        events = try container.decodeIfPresent([String].self, forKey: .events) ?? []
+        commands = try container.decodeIfPresent([ExtensionPaletteCommand].self, forKey: .commands) ?? []
+        tabTypes = try container.decodeIfPresent([ExtensionTabType].self, forKey: .tabTypes) ?? []
+        panels = try container.decodeIfPresent([ExtensionPanel].self, forKey: .panels) ?? []
+        popovers = try container.decodeIfPresent([ExtensionPopover].self, forKey: .popovers) ?? []
+        permissions = try container.decodeIfPresent([ExtensionPermission].self, forKey: .permissions) ?? []
+        topbarItems = try container.decodeIfPresent([ExtensionTopbarItem].self, forKey: .topbarItems) ?? []
+        statusBarItems = try container.decodeIfPresent([ExtensionStatusBarItem].self, forKey: .statusBarItems) ?? []
+        settings = try container.decodeIfPresent([ExtensionSettingEntry].self, forKey: .settings) ?? []
+    }
+}
+
 enum ExtensionLoadError: LocalizedError, Equatable {
     case manifestMissing(URL)
     case manifestInvalid(URL, String)
     case backgroundScriptMissing(URL)
     case backgroundScriptOutsideDirectory(URL)
     case invalidName(String)
+    case nameDirectoryMismatch(name: String, directory: String)
     case duplicateName(String)
     case tabTypeEntryMissing(tabTypeID: String, url: URL)
     case tabTypeEntryOutsideDirectory(tabTypeID: String, url: URL)
@@ -545,6 +618,8 @@ enum ExtensionLoadError: LocalizedError, Equatable {
             "Background script at \(url.path) escapes the extension directory"
         case let .invalidName(name):
             "Extension name '\(name)' contains invalid characters (use letters, digits, dash, underscore, dot)"
+        case let .nameDirectoryMismatch(name, directory):
+            "Extension name '\(name)' must match its directory name '\(directory)'"
         case let .duplicateName(name):
             "Duplicate extension name '\(name)'"
         case let .tabTypeEntryMissing(tabTypeID, url):
@@ -639,8 +714,10 @@ enum ExtensionManifestLoader {
         return set
     }()
 
+    static let manifestFileName = "package.json"
+
     static func load(from directory: URL) throws -> MuxyExtension {
-        let manifestURL = directory.appendingPathComponent("manifest.json")
+        let manifestURL = directory.appendingPathComponent(manifestFileName)
         guard FileManager.default.fileExists(atPath: manifestURL.path) else {
             throw ExtensionLoadError.manifestMissing(manifestURL)
         }
@@ -654,7 +731,8 @@ enum ExtensionManifestLoader {
 
         let manifest: ExtensionManifest
         do {
-            manifest = try JSONDecoder().decode(ExtensionManifest.self, from: data)
+            let package = try JSONDecoder().decode(PackageManifest.self, from: data)
+            manifest = ExtensionManifest(package: package)
         } catch {
             throw ExtensionLoadError.manifestInvalid(manifestURL, error.localizedDescription)
         }

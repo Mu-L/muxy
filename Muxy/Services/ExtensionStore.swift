@@ -243,7 +243,8 @@ final class ExtensionStore {
 
     nonisolated private static func locateManifestRoot(in directory: URL) throws -> URL {
         let fileManager = FileManager.default
-        if fileManager.fileExists(atPath: directory.appendingPathComponent("manifest.json").path) {
+        let manifestFile = ExtensionManifestLoader.manifestFileName
+        if fileManager.fileExists(atPath: directory.appendingPathComponent(manifestFile).path) {
             return directory
         }
         let entries = (try? fileManager.contentsOfDirectory(
@@ -255,7 +256,7 @@ final class ExtensionStore {
             (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
         }
         guard directories.count == 1,
-              fileManager.fileExists(atPath: directories[0].appendingPathComponent("manifest.json").path)
+              fileManager.fileExists(atPath: directories[0].appendingPathComponent(manifestFile).path)
         else {
             throw MarketplaceError.invalidArchive
         }
@@ -580,6 +581,12 @@ final class ExtensionStore {
 
             do {
                 let ext = try ExtensionManifestLoader.load(from: url)
+                guard ext.id == url.lastPathComponent else {
+                    throw ExtensionLoadError.nameDirectoryMismatch(
+                        name: ext.id,
+                        directory: url.lastPathComponent
+                    )
+                }
                 guard !seenIDs.contains(ext.id) else {
                     loadFailures.append(LoadFailure(
                         directory: url,

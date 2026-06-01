@@ -142,13 +142,18 @@ struct ExtensionScaffoldServiceTests {
         }
     }
 
-    private func loadManifest(at extensionURL: URL) throws -> [String: Any] {
-        let data = try Data(contentsOf: extensionURL.appendingPathComponent("manifest.json"))
+    private func loadPackage(at extensionURL: URL) throws -> [String: Any] {
+        let data = try Data(contentsOf: extensionURL.appendingPathComponent("package.json"))
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            Issue.record("manifest.json was not a JSON object")
+            Issue.record("package.json was not a JSON object")
             return [:]
         }
         return object
+    }
+
+    private func loadManifest(at extensionURL: URL) throws -> [String: Any] {
+        let package = try loadPackage(at: extensionURL)
+        return package["muxy"] as? [String: Any] ?? [:]
     }
 
     private func assertManifest(
@@ -157,11 +162,14 @@ struct ExtensionScaffoldServiceTests {
         version: String,
         description: String
     ) throws {
-        let manifest = try loadManifest(at: extensionURL)
-        #expect(manifest["name"] as? String == name)
-        #expect(manifest["version"] as? String == version)
-        #expect(manifest["background"] == nil)
-        #expect(manifest["description"] as? String == description)
+        let package = try loadPackage(at: extensionURL)
+        #expect(package["name"] as? String == name)
+        #expect(package["version"] as? String == version)
+        #expect((package["scripts"] as? [String: Any])?["build"] as? String != nil)
+
+        let muxy = try loadManifest(at: extensionURL)
+        #expect(muxy["background"] == nil)
+        #expect(muxy["description"] as? String == description)
     }
 
     private func assertNoBackground(at extensionURL: URL) throws {
