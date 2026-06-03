@@ -24,19 +24,15 @@ Lightweight terminal that has a rich API for extensions
 
 ## Features
 
-- Project-based workflow
 - Project groups
 - Vertical tabs
 - Split panes
 - Git worktrees
-- Diff viewer (unified & split)
-- File tree
 - Quick open & command palette
 - Text editor with syntax highlighting
 - Markdown & HTML preview (with Mermaid diagrams)
 - Image viewer
 - Extensions
-- IDE integration
 - Mobile companion apps (iOS & Android)
 - Rich input panel with image attachments
 - Voice input
@@ -44,11 +40,6 @@ Lightweight terminal that has a rich API for extensions
 - 490+ themes
 - 60+ customizable shortcuts
 - Workspace & session persistence
-- In-terminal search
-- Navigation history
-- Drag and drop
-- Project icons
-- Auto-updates
 
 ## Requirements
 
