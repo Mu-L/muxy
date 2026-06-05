@@ -23,6 +23,13 @@ final class HostSocketClient: @unchecked Sendable {
     static let maxConnectAttempts = 15
     static let connectRetryDelay: TimeInterval = 0.1
 
+    /// True when an identify reply indicates the token snapshot simply hasn't landed
+    /// yet (a spawn/publish ordering race) and a retry may succeed. A bad token
+    /// (`invalid extension token`) is a real failure and is NOT transient.
+    static func isTransientIdentifyRejection(_ reply: String) -> Bool {
+        reply.hasPrefix("error:unknown extension")
+    }
+
     init(
         socketPath: String,
         maxConnectAttempts: Int = HostSocketClient.maxConnectAttempts,

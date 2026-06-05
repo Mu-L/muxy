@@ -19,6 +19,16 @@ struct HostSocketClientTests {
         #expect(client.isClosed == false)
     }
 
+    @Test("classifies only `unknown extension` identify rejections as transient")
+    func classifiesTransientIdentifyRejections() {
+        // The token snapshot hasn't landed yet — retrying may succeed.
+        #expect(HostSocketClient.isTransientIdentifyRejection("error:unknown extension git"))
+        // A real auth failure — must not be retried.
+        #expect(!HostSocketClient.isTransientIdentifyRejection("error:invalid extension token"))
+        #expect(!HostSocketClient.isTransientIdentifyRejection("ok"))
+        #expect(!HostSocketClient.isTransientIdentifyRejection("error:usage identify|<extension-id>|<token>"))
+    }
+
     @Test("gives up with connectFailed when no server appears")
     func givesUpWhenServerNeverAppears() {
         let path = Self.temporarySocketPath()

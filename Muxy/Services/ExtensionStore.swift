@@ -6,6 +6,17 @@ private let logger = Logger(subsystem: "app.muxy", category: "ExtensionStore")
 
 protocol ExtensionSnapshotSink: Sendable {
     func applyExtensionSnapshot(_ snapshot: NotificationSocketServer.ExtensionSnapshot)
+    /// Commit synchronously: must return only once the snapshot is visible to the
+    /// socket server's identify handler. Used before spawning an extension host so the
+    /// host's token is present when it identifies. See `applyExtensionSnapshotSync`.
+    func applyExtensionSnapshotSync(_ snapshot: NotificationSocketServer.ExtensionSnapshot)
+}
+
+extension ExtensionSnapshotSink {
+    // Fakes that don't need ordering can rely on the async path.
+    func applyExtensionSnapshotSync(_ snapshot: NotificationSocketServer.ExtensionSnapshot) {
+        applyExtensionSnapshot(snapshot)
+    }
 }
 
 extension NotificationSocketServer: ExtensionSnapshotSink {}
@@ -319,6 +330,12 @@ final class ExtensionStore {
 
     private func publishSnapshot() {
         snapshotSink.applyExtensionSnapshot(snapshotForSocketServer())
+    }
+
+    /// Publish and block until the snapshot is committed. Use before spawning a host so
+    /// the host's token is guaranteed visible to the identify handler.
+    private func publishSnapshotSync() {
+        snapshotSink.applyExtensionSnapshotSync(snapshotForSocketServer())
     }
 
     static func buildSnapshotForTesting(
@@ -724,7 +741,10 @@ final class ExtensionStore {
 
         let token = Self.generateToken()
         tokens[ext.id] = token
-        publishSnapshot()
+        // Commit synchronously so the token is visible to the socket server's identify
+        // handler before the host we're about to spawn can connect and identify.
+        // Otherwise the host loses the race and is rejected as `unknown extension`.
+        publishSnapshotSync()
 
         var environment = ProcessInfo.processInfo.environment
         environment["MUXY_SOCKET_PATH"] = NotificationSocketServer.socketPath

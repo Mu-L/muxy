@@ -98,18 +98,34 @@ final class NotificationSocketServer: @unchecked Sendable {
 
     func applyExtensionSnapshot(_ snapshot: ExtensionSnapshot) {
         queue.async { [weak self] in
-            guard let self else { return }
-            self.extensionSnapshot = snapshot
-            for session in self.subscribers.values {
-                guard let extensionID = session.extensionID else { continue }
-                guard let entry = snapshot.entries[extensionID] else {
-                    session.extensionID = nil
-                    session.subscriptions.removeAll()
-                    continue
-                }
-                session.subscriptions = session.subscriptions.filter { event in
-                    Self.canSubscribe(entry: entry, to: event)
-                }
+            self?.commitSnapshot(snapshot)
+        }
+    }
+
+    /// Synchronous variant: commits the snapshot on `queue` and only returns once
+    /// `extensionSnapshot` reflects it. `ExtensionStore.startExtension` must call this
+    /// (not the async form) BEFORE spawning the host, otherwise the freshly-spawned
+    /// host can send `identify|<id>|<token>` before the async write lands, the lookup
+    /// in `extensionSnapshot.entries` misses, and the host is rejected with
+    /// `unknown extension` and exits — the long-standing startup race.
+    func applyExtensionSnapshotSync(_ snapshot: ExtensionSnapshot) {
+        queue.sync { [weak self] in
+            self?.commitSnapshot(snapshot)
+        }
+    }
+
+    /// Must run on `queue`.
+    private func commitSnapshot(_ snapshot: ExtensionSnapshot) {
+        extensionSnapshot = snapshot
+        for session in subscribers.values {
+            guard let extensionID = session.extensionID else { continue }
+            guard let entry = snapshot.entries[extensionID] else {
+                session.extensionID = nil
+                session.subscriptions.removeAll()
+                continue
+            }
+            session.subscriptions = session.subscriptions.filter { event in
+                Self.canSubscribe(entry: entry, to: event)
             }
         }
     }

@@ -58,9 +58,20 @@ client.onInvoke { [weak bridge] line in
 
 client.startReading()
 
+// Identify, retrying a transient `unknown extension` rejection for a short window.
+// That reply means our token snapshot hasn't landed in the socket server yet (a
+// spawn/publish ordering race); the app-side fix publishes synchronously before
+// spawning us, and this retry is belt-and-suspenders for any remaining async path.
+// `invalid extension token` is a real auth failure, so we fail fast on it.
 do {
-    let reply = try client.sendAndWaitReply("identify|\(extensionID)|\(token)")
-    guard reply == "ok" else {
+    let deadline = Date().addingTimeInterval(2.0)
+    while true {
+        let reply = try client.sendAndWaitReply("identify|\(extensionID)|\(token)")
+        if reply == "ok" { break }
+        if HostSocketClient.isTransientIdentifyRejection(reply), Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.1)
+            continue
+        }
         fail("identify rejected: \(reply)")
     }
 } catch {
