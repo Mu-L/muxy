@@ -220,12 +220,15 @@ struct ExtensionInstallPage: View {
     }
 
     private func load() async {
+        let requested = name
         phase = .loading
         installError = nil
         do {
-            let ext = try await ExtensionMarketplaceService.shared.fetch(name: name)
+            let ext = try await ExtensionMarketplaceService.shared.fetch(name: requested)
+            guard requested == name, !Task.isCancelled else { return }
             phase = .loaded(ext)
         } catch {
+            guard requested == name, !Task.isCancelled else { return }
             phase = .failed(message(for: error))
         }
     }
@@ -275,29 +278,13 @@ private struct ExtensionInstallIcon: View {
     let urlString: String?
 
     var body: some View {
-        Group {
-            if let urlString, let url = URL(string: urlString) {
-                AsyncImage(url: url) { image in
-                    image.resizable().scaledToFit()
-                } placeholder: {
-                    placeholder
-                }
-            } else {
-                placeholder
-            }
-        }
-        .frame(width: 48, height: 48)
-        .background(MuxyTheme.bg, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(MuxyTheme.border, lineWidth: 1)
-        )
-    }
-
-    private var placeholder: some View {
-        Image(systemName: "puzzlepiece.extension")
-            .font(.system(size: 20))
-            .foregroundStyle(MuxyTheme.fgDim)
+        ExtensionRemoteIconView(urlString: urlString, placeholderSize: 20)
+            .frame(width: 48, height: 48)
+            .background(MuxyTheme.bg, in: RoundedRectangle(cornerRadius: 10))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(MuxyTheme.border, lineWidth: 1)
+            )
     }
 }
 
