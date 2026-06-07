@@ -266,6 +266,10 @@ public final class MuxyRemoteServer: @unchecked Sendable {
         }
     }
 
+    func _testingFlushQueue() {
+        queue.sync {}
+    }
+
     private func isAuthenticated(_ id: UUID) -> Bool {
         queue.sync { authenticatedClients.contains(id) }
     }
@@ -281,20 +285,24 @@ public final class MuxyRemoteServer: @unchecked Sendable {
     }
 
     func handleTerminalFrame(_ frame: TerminalFrame, from clientID: UUID) {
-        guard isAuthenticated(clientID) else { return }
-        guard let delegate else { return }
-        switch frame.kind {
-        case .input:
-            Task { @MainActor in
-                delegate.terminalInput(paneID: frame.paneID, bytes: frame.payload, clientID: clientID)
+        queue.async { [weak self] in
+            guard let self,
+                  self.authenticatedClients.contains(clientID),
+                  let delegate = self.delegate
+            else { return }
+            switch frame.kind {
+            case .input:
+                Task { @MainActor in
+                    delegate.terminalInput(paneID: frame.paneID, bytes: frame.payload, clientID: clientID)
+                }
+            case .ack:
+                Task { @MainActor in
+                    delegate.clientAckedTerminal(paneID: frame.paneID, offset: frame.sequence, clientID: clientID)
+                }
+            case .output,
+                 .resize:
+                break
             }
-        case .ack:
-            Task { @MainActor in
-                delegate.clientAckedTerminal(paneID: frame.paneID, offset: frame.sequence, clientID: clientID)
-            }
-        case .output,
-             .resize:
-            break
         }
     }
 

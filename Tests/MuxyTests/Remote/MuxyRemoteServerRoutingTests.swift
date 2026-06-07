@@ -374,6 +374,7 @@ struct MuxyRemoteServerRoutingTests {
         let paneID = UUID()
 
         server.handleTerminalFrame(.input(paneID: paneID, bytes: Data("ls\r".utf8)), from: clientID)
+        server._testingFlushQueue()
         await Task.yield()
 
         #expect(delegate.terminalInputCalls.first?.paneID == paneID)
@@ -388,6 +389,7 @@ struct MuxyRemoteServerRoutingTests {
         let paneID = UUID()
 
         server.handleTerminalFrame(.ack(paneID: paneID, offset: 512), from: clientID)
+        server._testingFlushQueue()
         await Task.yield()
 
         #expect(delegate.ackCalls.first?.paneID == paneID)
@@ -401,6 +403,7 @@ struct MuxyRemoteServerRoutingTests {
         let paneID = UUID()
 
         server.handleTerminalFrame(.input(paneID: paneID, bytes: Data("x".utf8)), from: UUID())
+        server._testingFlushQueue()
         await Task.yield()
 
         #expect(delegate.terminalInputCalls.isEmpty)
