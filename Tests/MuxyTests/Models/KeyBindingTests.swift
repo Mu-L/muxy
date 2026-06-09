@@ -74,11 +74,17 @@ struct KeyBindingTests {
         #expect(actions.count == unique.count)
     }
 
-    @Test("KeyBinding.defaults has unique combos")
+    @Test("KeyBinding.defaults has unique assigned combos")
     func defaultsUniqueCombos() {
-        let combos = KeyBinding.defaults.map(\.combo)
+        let combos = KeyBinding.defaults.map(\.combo).filter(\.isAssigned)
         let unique = Set(combos)
         #expect(combos.count == unique.count)
+    }
+
+    @Test("KeyBinding.defaults leaves rename tab unassigned")
+    func defaultsRenameTabUnassigned() {
+        let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })
+        #expect(combos[.renameTab]?.isAssigned == false)
     }
 
     @Test("KeyBinding.defaults includes cycle tab across panes shortcuts")
@@ -94,13 +100,6 @@ struct KeyBindingTests {
         #expect(combos[.toggleMaximizePane] == KeyCombo(key: KeyCombo.returnKey, command: true, option: true))
     }
 
-    @Test("KeyBinding.defaults uses browser reopen shortcut")
-    func defaultsIncludesReopenClosedTerminalTabShortcut() {
-        let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })
-        #expect(combos[.reopenClosedTerminalTab] == KeyCombo(key: "t", command: true, shift: true))
-        #expect(combos[.renameTab] == KeyCombo(key: "t", shift: true, option: true))
-    }
-
     @Test("KeyBinding.defaults includes scoped omnibox shortcuts")
     func defaultsIncludesScopedOmniboxShortcuts() {
         let combos = Dictionary(uniqueKeysWithValues: KeyBinding.defaults.map { ($0.action, $0.combo) })
@@ -108,7 +107,6 @@ struct KeyBindingTests {
         #expect(combos[.terminalOmniboxProjects] == KeyCombo(key: "p", command: true, option: true))
         #expect(combos[.terminalOmniboxWorktrees] == KeyCombo(key: "w", command: true, option: true))
         #expect(combos[.terminalOmniboxCommands] == KeyCombo(key: "p", command: true, shift: true))
-        #expect(combos[.terminalOmniboxHistory] == KeyCombo(key: "h", command: true, option: true))
     }
 
     @Test("Toggle Full Screen uses Cmd+Ctrl+F by default")

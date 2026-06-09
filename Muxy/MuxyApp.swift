@@ -67,7 +67,6 @@ struct MuxyApp: App {
                     MemoryDiagnostics.shared.configure(appState: appState)
                     TerminalProgressStore.shared.appState = appState
                     appDelegate.onTerminate = { [appState] in
-                        appState.saveTerminalSessions()
                         appState.saveWorkspaces()
                     }
                     appDelegate.openProjectFromPath = { [appState, projectStore, worktreeStore, projectGroupStore] path in
@@ -146,6 +145,7 @@ struct MuxyApp: App {
         didStartDeferredServices = true
         Task { @MainActor in
             await Task.yield()
+            MuxyFileStorage.removeFile(named: "terminal-sessions.json")
             SettingsJSONStore.beginAutomaticUserSettingsSync()
             try? await Task.sleep(for: .seconds(2))
             UpdateService.shared.start()
