@@ -77,9 +77,15 @@ final class ApprovedDevicesStore {
     }
 
     func revoke(deviceID: UUID) {
-        devices.removeAll { $0.id == deviceID }
+        revoke(deviceIDs: [deviceID])
+    }
+
+    func revoke(deviceIDs: Set<UUID>) {
+        let removed = devices.filter { deviceIDs.contains($0.id) }
+        guard !removed.isEmpty else { return }
+        devices.removeAll { deviceIDs.contains($0.id) }
         save()
-        onRevoke?(deviceID)
+        removed.forEach { onRevoke?($0.id) }
     }
 
     func replaceDevices(_ newDevices: [ApprovedDevice]) {
