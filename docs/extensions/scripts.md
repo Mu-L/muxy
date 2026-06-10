@@ -106,6 +106,10 @@ Differences from the webview API:
 - No page-only APIs: no `muxy.panels`, `muxy.popover`, `muxy.http`, or `muxy.tabs.setTitle`/`setIcon` (those need a tab instance).
 - No `muxy.events` and no `muxy.remote` — those are background-script APIs ([events](events.md), [remote methods](remote-methods.md)).
 
+## Remote workspaces
+
+When the active workspace is a remote (SSH) workspace, `muxy.exec`, `muxy.git.*`, and worktree operations execute **on the remote server**, not the Mac. Paths (`cwd`, project/worktree paths) are remote paths. Muxy brokers the SSH connection for you using your system SSH config, keys, and agent — the extension code is unchanged whether the active workspace is local or remote.
+
 ## Permissions
 
 Each verb is gated by its own permission, as on every surface (see [Permissions](permissions.md)). Calling a method without its permission throws `Error("permission denied (<perm>)")`, which the script can catch.

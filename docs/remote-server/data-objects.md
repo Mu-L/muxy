@@ -15,11 +15,16 @@ Every object below is the exact wire shape produced by the desktop. All dates ar
   "logo": "a1b2c3d4",
   "iconColor": "#7C3AED",
   "preferredWorktreeParentPath": "/Users/example",
-  "worktreesEnabled": false
+  "worktreesEnabled": false,
+  "workspaceKind": "local",
+  "workspaceID": "uuid",
+  "workspaceName": "Production"
 }
 ```
 
 `icon`, `logo`, `iconColor`, and `preferredWorktreeParentPath` are optional and omitted when unset. `icon` is an SF Symbol name. `logo` is an opaque storage identifier — fetch the image with [`getProjectLogo`](methods.md). `iconColor` is a hex string or a palette id (`red`, `blue`, `violet`, …). `worktreesEnabled` indicates whether the project exposes its worktrees in the sidebar; it defaults to `false`.
+
+`listProjects` returns projects from **all** workspaces — local projects plus every remote (SSH) workspace's projects. `workspaceKind` is `"local"` or `"ssh"`; `workspaceID`/`workspaceName` identify the owning workspace (omitted for plain local projects). Selecting an `ssh` project via [`selectProject`](methods.md) makes the Mac activate that workspace and connect over SSH, so the mobile client drives the remote server transparently — terminals, git, and exec all run on the remote host while the Mac brokers the connection. `path` for an `ssh` project is a remote path.
 
 ## Worktree
 

@@ -90,7 +90,10 @@ struct WorktreePopover: View {
 
     @MainActor
     private func requestRemove(worktree: Worktree) async {
-        let hasChanges = await GitWorktreeService.shared.hasUncommittedChanges(worktreePath: worktree.path)
+        let hasChanges = await GitWorktreeService.shared.hasUncommittedChanges(
+            worktreePath: worktree.path,
+            context: project.remoteWorkspaceID == nil ? .local : ActiveWorkspaceContext.shared.current
+        )
         pendingRemoval = WorktreeRemovalConfirmation(
             worktree: worktree,
             hasUncommittedChanges: hasChanges

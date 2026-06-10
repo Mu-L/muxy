@@ -185,7 +185,7 @@ private final class ProjectPickerDefaultLocationPanelFake: ProjectPickerDefaultL
     }
 }
 
-private final class ProjectPickerDefaultLocationSettingsFileSystemFake: ProjectPickerFileSystem {
+private final class ProjectPickerDefaultLocationSettingsFileSystemFake: ProjectPickerFileSystem, @unchecked Sendable {
     var directoryStates: [String: ProjectPickerFileSystemDirectoryState] = [:]
     var readablePaths: Set<String> = []
 

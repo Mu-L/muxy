@@ -248,7 +248,8 @@ enum MuxyAPIDispatcher {
             extensionID: context.extensionID,
             appState: context.appState,
             projectStore: projectStore,
-            worktreeStore: worktreeStore
+            worktreeStore: worktreeStore,
+            workspaceContext: ActiveWorkspaceContext.shared.current
         )
         let project = args["project"] as? String
 

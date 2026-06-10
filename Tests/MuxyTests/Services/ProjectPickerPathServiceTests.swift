@@ -16,6 +16,28 @@ struct ProjectPickerPathServiceTests {
         #expect(service.abbreviatedDirectoryDisplayPath("/tmp/muxy") == "/tmp/muxy/")
     }
 
+    @Test("filtering reuses cached directory contents without re-listing")
+    func filteringReusesCachedContents() {
+        let counter = CountingProjectPickerFileSystem(entries: [
+            .directory("alpha"), .directory("beta"), .file("readme.md"),
+        ])
+        let service = ProjectPickerPathService(homeDirectory: "/Users/alice", fileSystem: counter)
+
+        let directoryPath = "/Users/alice/code"
+        let items = try? service.directoryContents(atPath: directoryPath).get()
+        #expect(counter.callCount == 1)
+        #expect(items?.count == 2)
+
+        let unfiltered = service.snapshot(for: service.state(for: "/Users/alice/code/"), items: items ?? [])
+        let filtered = service.snapshot(for: service.state(for: "/Users/alice/code/al"), items: items ?? [])
+
+        #expect(counter.callCount == 1)
+        #expect(unfiltered.rows.contains(where: { $0.name == "alpha" }))
+        #expect(unfiltered.rows.contains(where: { $0.name == "beta" }))
+        #expect(filtered.rows.contains(where: { $0.name == "alpha" }))
+        #expect(!filtered.rows.contains(where: { $0.name == "beta" }))
+    }
+
     @Test("input state separates directory leaf confirm and parent display paths")
     func inputStateInterpretation() {
         let service = ProjectPickerPathService(homeDirectory: "/Users/alice")
@@ -114,6 +136,23 @@ struct ProjectPickerPathServiceTests {
         #expect(!snapshot.rows.map(\.name).contains("target-file"))
         #expect(!snapshot.rows.map(\.name).contains("file-link"))
         #expect(snapshot.rows.first { $0.name == "directory-link" }?.isDirectorySymlink == true)
+    }
+}
+
+private final class CountingProjectPickerFileSystem: ProjectPickerFileSystem, @unchecked Sendable {
+    private let entries: [ProjectPickerFileSystemDirectoryEntry]
+    private(set) var callCount = 0
+
+    init(entries: [ProjectPickerFileSystemDirectoryEntry]) {
+        self.entries = entries
+    }
+
+    func directoryState(atPath _: String) -> ProjectPickerFileSystemDirectoryState { .directory }
+    func isReadableFile(atPath _: String) -> Bool { true }
+
+    func contentsOfDirectory(atPath _: String) throws -> [ProjectPickerFileSystemDirectoryEntry] {
+        callCount += 1
+        return entries
     }
 }
 

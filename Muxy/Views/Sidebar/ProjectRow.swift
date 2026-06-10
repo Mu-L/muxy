@@ -86,7 +86,10 @@ struct ProjectRow: View {
                 isCheckingGitRepo = true
                 try? await Task.sleep(for: .seconds(2))
                 guard !Task.isCancelled else { return }
-                isGitRepo = await GitWorktreeService.shared.isGitRepository(project.path)
+                isGitRepo = await GitWorktreeService.shared.isGitRepository(
+                    project.path,
+                    context: project.remoteWorkspaceID == nil ? .local : ActiveWorkspaceContext.shared.current
+                )
                 isCheckingGitRepo = false
             }
             .contextMenu {

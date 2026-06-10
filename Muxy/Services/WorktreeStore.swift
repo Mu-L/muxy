@@ -102,15 +102,11 @@ final class WorktreeStore {
         project: Project,
         request: WorktreeCreationRequest
     ) async throws -> Worktree {
-        try await GitProcessRunner.offMainThrowing {
-            try FileManager.default.createDirectory(
-                atPath: URL(fileURLWithPath: request.path).deletingLastPathComponent().path,
-                withIntermediateDirectories: true,
-                attributes: nil
-            )
-        }
+        let context = ActiveWorkspaceContext.shared.current
+        let parentPath = parentDirectory(of: request.path, context: context)
+        try await context.fileOps.makeDirectory(at: parentPath)
 
-        try await addGitWorktree(project.path, request.path, request.branch, request.createBranch, request.baseBranch)
+        try await addWorktreeForContext(project: project, request: request, context: context)
         let worktree = Worktree(
             name: request.name,
             path: request.path,
@@ -122,6 +118,40 @@ final class WorktreeStore {
         return worktree
     }
 
+    private func addWorktreeForContext(
+        project: Project,
+        request: WorktreeCreationRequest,
+        context: WorkspaceContext
+    ) async throws {
+        guard context.isRemote else {
+            try await addGitWorktree(
+                project.path,
+                request.path,
+                request.branch,
+                request.createBranch,
+                request.baseBranch
+            )
+            return
+        }
+        try await GitWorktreeService.shared.addWorktree(
+            repoPath: project.path,
+            path: request.path,
+            branch: request.branch,
+            createBranch: request.createBranch,
+            baseBranch: request.baseBranch,
+            context: context
+        )
+    }
+
+    private func parentDirectory(of path: String, context: WorkspaceContext) -> String {
+        guard context.isRemote else {
+            return URL(fileURLWithPath: path).deletingLastPathComponent().path
+        }
+        guard let slashIndex = path.lastIndex(of: "/") else { return "." }
+        let parent = String(path[..<slashIndex])
+        return parent.isEmpty ? "/" : parent
+    }
+
     func remove(worktreeID: UUID, from projectID: UUID) {
         guard var list = worktrees[projectID] else { return }
         list.removeAll { $0.id == worktreeID && $0.canBeRemoved }
@@ -130,11 +160,13 @@ final class WorktreeStore {
     }
 
     func refreshFromGit(project: Project) async throws -> [Worktree] {
+        let context = ActiveWorkspaceContext.shared.current
         ensurePrimary(for: project)
-        let records = try await listGitWorktrees(project.path).filter { !$0.isBare && !$0.isPrunable }
+        let records = try await listWorktreesForContext(project: project, context: context)
+            .filter { !$0.isBare && !$0.isPrunable }
         var list = worktrees[project.id] ?? []
-        let projectKey = GitWorktreeService.canonicalPath(project.path)
-        let recordKeys = Set(records.map { GitWorktreeService.canonicalPath($0.path) })
+        let projectKey = GitWorktreeService.canonicalPath(project.path, context: context)
+        let recordKeys = Set(records.map { GitWorktreeService.canonicalPath($0.path, context: context) })
 
         if let primaryIndex = list.firstIndex(where: \.isPrimary) {
             list[primaryIndex].path = project.path
@@ -145,7 +177,7 @@ final class WorktreeStore {
 
         var existingByKey: [String: Worktree] = [:]
         for worktree in list {
-            let key = GitWorktreeService.canonicalPath(worktree.path)
+            let key = GitWorktreeService.canonicalPath(worktree.path, context: context)
             if let existing = existingByKey[key] {
                 if worktree.isPrimary, !existing.isPrimary {
                     existingByKey[key] = worktree
@@ -156,7 +188,7 @@ final class WorktreeStore {
         }
 
         for record in records {
-            let recordKey = GitWorktreeService.canonicalPath(record.path)
+            let recordKey = GitWorktreeService.canonicalPath(record.path, context: context)
             if recordKey == projectKey {
                 if let primaryIndex = list.firstIndex(where: \.isPrimary) {
                     list[primaryIndex].branch = record.branch
@@ -187,28 +219,42 @@ final class WorktreeStore {
         }
 
         let sorted = sortPrimaryFirst(list.filter {
-            !$0.isExternallyManaged || recordKeys.contains(GitWorktreeService.canonicalPath($0.path))
+            !$0.isExternallyManaged || recordKeys.contains(GitWorktreeService.canonicalPath($0.path, context: context))
         })
         setWorktrees(sorted, for: project.id)
         save(projectID: project.id)
         return sorted
     }
 
+    private func listWorktreesForContext(
+        project: Project,
+        context: WorkspaceContext
+    ) async throws -> [GitWorktreeRecord] {
+        guard context.isRemote else {
+            return try await listGitWorktrees(project.path)
+        }
+        return try await GitWorktreeService.shared.listWorktrees(repoPath: project.path, context: context)
+    }
+
     static func cleanupOnDisk(
         worktree: Worktree,
         repoPath: String,
+        context: WorkspaceContext = .local,
         teardownEmit: @Sendable @escaping (WorktreeTeardownOutputLine) -> Void = { _ in }
     ) async throws {
         guard worktree.canBeRemoved else { return }
-        try await WorktreeTeardownRunner.run(
-            sourceProjectPath: repoPath,
-            worktree: worktree,
-            emit: teardownEmit
-        )
+        if !context.isRemote {
+            try await WorktreeTeardownRunner.run(
+                sourceProjectPath: repoPath,
+                worktree: worktree,
+                emit: teardownEmit
+            )
+        }
         try await GitWorktreeService.shared.removeWorktree(
             repoPath: repoPath,
             path: worktree.path,
-            force: true
+            force: true,
+            context: context
         )
 
         if worktree.ownsBranch,
@@ -216,23 +262,35 @@ final class WorktreeStore {
            !branch.isEmpty
         {
             do {
-                try await GitWorktreeService.shared.deleteBranch(repoPath: repoPath, branch: branch)
+                try await GitWorktreeService.shared.deleteBranch(repoPath: repoPath, branch: branch, context: context)
             } catch {
                 logger.error("Failed to delete branch \(branch) for worktree \(worktree.path): \(error)")
             }
         }
 
-        try? FileManager.default.removeItem(atPath: worktree.path)
-        guard !worktree.isExternallyManaged else { return }
+        try? await context.fileOps.removeItem(at: worktree.path)
+        guard !context.isRemote, !worktree.isExternallyManaged else { return }
         removeParentDirectoryIfEmpty(for: worktree.path)
     }
 
-    static func cleanupOnDisk(for project: Project, knownWorktrees: [Worktree]) async throws {
+    private static func removeParentDirectoryIfEmpty(for path: String) {
+        let parent = URL(fileURLWithPath: path).deletingLastPathComponent()
+        let children = (try? FileManager.default.contentsOfDirectory(atPath: parent.path)) ?? []
+        guard children.isEmpty else { return }
+        try? FileManager.default.removeItem(at: parent)
+    }
+
+    static func cleanupOnDisk(
+        for project: Project,
+        knownWorktrees: [Worktree],
+        context: WorkspaceContext = .local
+    ) async throws {
         let secondaryWorktrees = knownWorktrees.filter { $0.canBeRemoved && !$0.isExternallyManaged }
         for worktree in secondaryWorktrees {
-            try await cleanupOnDisk(worktree: worktree, repoPath: project.path)
+            try await cleanupOnDisk(worktree: worktree, repoPath: project.path, context: context)
         }
 
+        guard !context.isRemote else { return }
         let root = MuxyFileStorage.worktreeRoot(forProjectID: project.id)
         guard FileManager.default.fileExists(atPath: root.path) else { return }
         let children = (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []
@@ -246,13 +304,6 @@ final class WorktreeStore {
             try? FileManager.default.removeItem(atPath: childPath)
         }
         try? FileManager.default.removeItem(at: root)
-    }
-
-    private static func removeParentDirectoryIfEmpty(for path: String) {
-        let parent = URL(fileURLWithPath: path).deletingLastPathComponent()
-        let children = (try? FileManager.default.contentsOfDirectory(atPath: parent.path)) ?? []
-        guard children.isEmpty else { return }
-        try? FileManager.default.removeItem(at: parent)
     }
 
     func rename(worktreeID: UUID, in projectID: UUID, to newName: String) {

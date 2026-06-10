@@ -10,7 +10,9 @@ extension MuxyAPI {
             let worktreeStore: WorktreeStore
         }
 
-        private static let service = GitRepositoryService()
+        private static var service: GitRepositoryService {
+            GitRepositoryService(context: ActiveWorkspaceContext.shared.current)
+        }
 
         static let maxLogCount = 1000
         static let maxPRListLimit = 200
@@ -221,7 +223,10 @@ extension MuxyAPI {
             context: Context
         ) async -> Result<[GitWorktreeRecord], APIError> {
             await read(projectIdentifier, context) { repoPath in
-                try await GitWorktreeService.shared.listWorktrees(repoPath: repoPath)
+                try await GitWorktreeService.shared.listWorktrees(
+                    repoPath: repoPath,
+                    context: ActiveWorkspaceContext.shared.current
+                )
             }
         }
 
@@ -446,10 +451,13 @@ extension MuxyAPI {
         ) async -> Result<String, APIError> {
             let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmedPath.isEmpty else { return .failure(.invalidArguments("path is required")) }
+            let resolvedPath = ActiveWorkspaceContext.shared.current.isRemote
+                ? trimmedPath
+                : NSString(string: trimmedPath).expandingTildeInPath
             return await write(projectIdentifier, operation: "pr.checkoutWorktree", context: context) { repoPath in
                 try await service.createPullRequestWorktree(
                     repoPath: repoPath,
-                    path: NSString(string: trimmedPath).expandingTildeInPath,
+                    path: resolvedPath,
                     number: number
                 )
             }
@@ -536,14 +544,17 @@ extension MuxyAPI {
             guard !trimmedPath.isEmpty, !trimmedBranch.isEmpty else {
                 return .failure(.invalidArguments("path and branch are required"))
             }
+            let workspaceContext = ActiveWorkspaceContext.shared.current
+            let worktreePath = workspaceContext.isRemote ? trimmedPath : NSString(string: trimmedPath).expandingTildeInPath
             return await write(request.projectIdentifier, operation: "worktree.add", context: context) { repoPath in
                 let base = request.baseBranch?.trimmingCharacters(in: .whitespacesAndNewlines)
                 try await GitWorktreeService.shared.addWorktree(
                     repoPath: repoPath,
-                    path: NSString(string: trimmedPath).expandingTildeInPath,
+                    path: worktreePath,
                     branch: trimmedBranch,
                     createBranch: request.createBranch,
-                    baseBranch: request.createBranch && base?.isEmpty == false ? base : nil
+                    baseBranch: request.createBranch && base?.isEmpty == false ? base : nil,
+                    context: workspaceContext
                 )
             }
         }
@@ -556,24 +567,33 @@ extension MuxyAPI {
         ) async -> Result<Void, APIError> {
             let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmedPath.isEmpty else { return .failure(.invalidArguments("path is required")) }
-            let expandedPath = NSString(string: trimmedPath).expandingTildeInPath
+            let workspaceContext = ActiveWorkspaceContext.shared.current
+            let expandedPath = workspaceContext.isRemote ? trimmedPath : NSString(string: trimmedPath).expandingTildeInPath
 
             guard let tracked = trackedWorktree(path: expandedPath, context: context) else {
                 return await write(projectIdentifier, operation: "worktree.remove", context: context) { repoPath in
                     try await GitWorktreeService.shared.removeWorktree(
                         repoPath: repoPath,
                         path: expandedPath,
-                        force: force
+                        force: force,
+                        context: workspaceContext
                     )
                 }
             }
 
-            if !force, await GitWorktreeService.shared.hasUncommittedChanges(worktreePath: tracked.worktree.path) {
+            if !force, await GitWorktreeService.shared.hasUncommittedChanges(
+                worktreePath: tracked.worktree.path,
+                context: workspaceContext
+            ) {
                 return .failure(.invalidArguments("worktree has uncommitted changes; pass force to remove it"))
             }
 
             let result = await write(projectIdentifier, operation: "worktree.remove", context: context) { _ in
-                try await WorktreeStore.cleanupOnDisk(worktree: tracked.worktree, repoPath: tracked.project.path)
+                try await WorktreeStore.cleanupOnDisk(
+                    worktree: tracked.worktree,
+                    repoPath: tracked.project.path,
+                    context: workspaceContext
+                )
             }
             if case .success = result {
                 forgetWorktree(project: tracked.project, worktree: tracked.worktree, context: context)
@@ -585,10 +605,11 @@ extension MuxyAPI {
             path: String,
             context: Context
         ) -> (project: Project, worktree: Worktree)? {
-            let target = GitWorktreeService.canonicalPath(path)
+            let workspaceContext = ActiveWorkspaceContext.shared.current
+            let target = GitWorktreeService.canonicalPath(path, context: workspaceContext)
             for project in context.projectStore.projects {
                 guard let worktree = context.worktreeStore.list(for: project.id).first(where: {
-                    GitWorktreeService.canonicalPath($0.path) == target
+                    GitWorktreeService.canonicalPath($0.path, context: workspaceContext) == target
                 }), worktree.canBeRemoved
                 else { continue }
                 return (project, worktree)

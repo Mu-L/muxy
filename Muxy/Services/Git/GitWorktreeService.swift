@@ -46,10 +46,11 @@ actor GitWorktreeService: GitWorktreeListing {
         }
     }
 
-    func isGitRepository(_ path: String) async -> Bool {
+    func isGitRepository(_ path: String, context: WorkspaceContext = .local) async -> Bool {
         guard let result = try? await GitProcessRunner.runGit(
             repoPath: path,
-            arguments: ["rev-parse", "--is-inside-work-tree"]
+            arguments: ["rev-parse", "--is-inside-work-tree"],
+            context: context
         )
         else {
             return false
@@ -57,10 +58,11 @@ actor GitWorktreeService: GitWorktreeListing {
         return result.status == 0 && result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "true"
     }
 
-    func hasUncommittedChanges(worktreePath: String) async -> Bool {
+    func hasUncommittedChanges(worktreePath: String, context: WorkspaceContext = .local) async -> Bool {
         guard let result = try? await GitProcessRunner.runGit(
             repoPath: worktreePath,
-            arguments: ["status", "--porcelain=1", "--untracked-files=all"]
+            arguments: ["status", "--porcelain=1", "--untracked-files=all"],
+            context: context
         )
         else {
             return false
@@ -70,9 +72,14 @@ actor GitWorktreeService: GitWorktreeListing {
     }
 
     func listWorktrees(repoPath: String) async throws -> [GitWorktreeRecord] {
+        try await listWorktrees(repoPath: repoPath, context: .local)
+    }
+
+    func listWorktrees(repoPath: String, context: WorkspaceContext) async throws -> [GitWorktreeRecord] {
         let result = try await GitProcessRunner.runGit(
             repoPath: repoPath,
-            arguments: ["worktree", "list", "--porcelain"]
+            arguments: ["worktree", "list", "--porcelain"],
+            context: context
         )
         guard result.status == 0 else {
             throw GitWorktreeError.commandFailed(
@@ -99,7 +106,8 @@ actor GitWorktreeService: GitWorktreeListing {
         path: String,
         branch: String,
         createBranch: Bool,
-        baseBranch: String? = nil
+        baseBranch: String? = nil,
+        context: WorkspaceContext = .local
     ) async throws {
         try Self.validateBranchName(branch)
         var args: [String] = ["worktree", "add"]
@@ -112,7 +120,7 @@ actor GitWorktreeService: GitWorktreeListing {
         } else {
             args += ["--", path, branch]
         }
-        let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: args)
+        let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: args, context: context)
         guard result.status == 0 else {
             throw GitWorktreeError.commandFailed(
                 result.stderr.isEmpty ? "Failed to add worktree." : result.stderr
@@ -120,17 +128,22 @@ actor GitWorktreeService: GitWorktreeListing {
         }
     }
 
-    func removeWorktree(repoPath: String, path: String, force: Bool = false) async throws {
+    func removeWorktree(
+        repoPath: String,
+        path: String,
+        force: Bool = false,
+        context: WorkspaceContext = .local
+    ) async throws {
         var args: [String] = ["worktree", "remove"]
         if force { args.append("--force") }
         args += ["--", path]
-        let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: args)
+        let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: args, context: context)
         guard result.status != 0 else { return }
 
-        try? await pruneWorktrees(repoPath: repoPath)
-        let target = Self.canonicalPath(path)
-        let stillRegistered = try await listWorktrees(repoPath: repoPath)
-            .contains { Self.canonicalPath($0.path) == target }
+        try? await pruneWorktrees(repoPath: repoPath, context: context)
+        let target = Self.canonicalPath(path, context: context)
+        let stillRegistered = try await listWorktrees(repoPath: repoPath, context: context)
+            .contains { Self.canonicalPath($0.path, context: context) == target }
         guard stillRegistered else { return }
 
         throw GitWorktreeError.commandFailed(
@@ -138,10 +151,11 @@ actor GitWorktreeService: GitWorktreeListing {
         )
     }
 
-    private func pruneWorktrees(repoPath: String) async throws {
+    private func pruneWorktrees(repoPath: String, context: WorkspaceContext) async throws {
         let result = try await GitProcessRunner.runGit(
             repoPath: repoPath,
-            arguments: ["worktree", "prune"]
+            arguments: ["worktree", "prune"],
+            context: context
         )
         guard result.status == 0 else {
             throw GitWorktreeError.commandFailed(
@@ -150,7 +164,8 @@ actor GitWorktreeService: GitWorktreeListing {
         }
     }
 
-    static func canonicalPath(_ path: String) -> String {
+    static func canonicalPath(_ path: String, context: WorkspaceContext = .local) -> String {
+        guard !context.isRemote else { return path }
         let standardized = URL(fileURLWithPath: path).standardizedFileURL
         let resolved = standardized.resolvingSymlinksInPath()
         guard resolved.path == standardized.path else { return resolved.path }
@@ -159,10 +174,15 @@ actor GitWorktreeService: GitWorktreeListing {
         return parent.appendingPathComponent(standardized.lastPathComponent).path
     }
 
-    func deleteBranch(repoPath: String, branch: String, force: Bool = true) async throws {
+    func deleteBranch(
+        repoPath: String,
+        branch: String,
+        force: Bool = true,
+        context: WorkspaceContext = .local
+    ) async throws {
         try Self.validateBranchName(branch)
         let args = ["branch", force ? "-D" : "-d", "--", branch]
-        let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: args)
+        let result = try await GitProcessRunner.runGit(repoPath: repoPath, arguments: args, context: context)
         guard result.status == 0 else {
             throw GitWorktreeError.commandFailed(
                 result.stderr.isEmpty ? "Failed to delete branch \(branch)." : result.stderr

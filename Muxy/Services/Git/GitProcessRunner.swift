@@ -55,13 +55,31 @@ enum GitProcessRunner {
     static func runGit(
         repoPath: String,
         arguments: [String],
-        lineLimit: Int? = nil
+        lineLimit: Int? = nil,
+        context: WorkspaceContext = .local
     ) async throws -> GitProcessResult {
-        try await runProcess(
+        guard case let .ssh(destination) = context else {
+            return try await runProcess(
+                ProcessSpec(
+                    executable: "/usr/bin/env",
+                    arguments: ["git"] + gitHubCredentialHelperArgs() + ["-C", repoPath] + arguments,
+                    workingDirectory: nil,
+                    lineLimit: lineLimit,
+                    signpostName: "git"
+                )
+            )
+        }
+        let resolved = CommandTransform.resolve(
+            executable: "git",
+            arguments: ["-C", repoPath] + arguments,
+            workingDirectory: nil,
+            in: .ssh(destination)
+        )
+        return try await runProcess(
             ProcessSpec(
-                executable: "/usr/bin/env",
-                arguments: ["git"] + gitHubCredentialHelperArgs() + ["-C", repoPath] + arguments,
-                workingDirectory: nil,
+                executable: resolved.executable,
+                arguments: resolved.arguments,
+                workingDirectory: resolved.workingDirectory,
                 lineLimit: lineLimit,
                 signpostName: "git"
             )
@@ -105,6 +123,21 @@ enum GitProcessRunner {
                 arguments: arguments,
                 workingDirectory: workingDirectory,
                 lineLimit: nil,
+                signpostName: "command"
+            )
+        )
+    }
+
+    static func runResolved(
+        _ resolved: ResolvedLaunch,
+        lineLimit: Int? = nil
+    ) async throws -> GitProcessResult {
+        try await runProcess(
+            ProcessSpec(
+                executable: resolved.executable,
+                arguments: resolved.arguments,
+                workingDirectory: resolved.workingDirectory,
+                lineLimit: lineLimit,
                 signpostName: "command"
             )
         )

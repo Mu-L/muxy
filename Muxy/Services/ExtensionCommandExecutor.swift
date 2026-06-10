@@ -53,16 +53,29 @@ enum ExtensionCommandExecutor {
         guard decision == .allow else {
             throw ExecError.invalidArguments("user denied consent for exec")
         }
-        return try await runUnchecked(request: request, extensionID: extensionID, defaultCwd: defaultCwd)
+        let context = ActiveWorkspaceContext.shared.current
+        return try await runUnchecked(
+            request: request,
+            extensionID: extensionID,
+            defaultCwd: defaultCwd,
+            context: context
+        )
     }
 
     static func runUnchecked(
         request: ExecRequest,
         extensionID: String,
-        defaultCwd: String?
+        defaultCwd: String?,
+        context: WorkspaceContext = .local
     ) async throws -> ExecResult {
         let process = Process()
-        try configureLaunch(process, request: request, extensionID: extensionID, defaultCwd: defaultCwd)
+        try configureLaunch(
+            process,
+            request: request,
+            extensionID: extensionID,
+            defaultCwd: defaultCwd,
+            context: context
+        )
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
@@ -112,8 +125,15 @@ enum ExtensionCommandExecutor {
         _ process: Process,
         request: ExecRequest,
         extensionID: String,
-        defaultCwd: String?
+        defaultCwd: String?,
+        context: WorkspaceContext
     ) throws {
+        let cwdValue = request.cwd ?? defaultCwd
+        guard !context.isRemote else {
+            try configureRemoteLaunch(process, request: request, cwdValue: cwdValue, context: context)
+            return
+        }
+
         if let shell = request.shell {
             process.executableURL = URL(fileURLWithPath: "/bin/sh")
             process.arguments = ["-c", shell]
@@ -124,7 +144,6 @@ enum ExtensionCommandExecutor {
             throw ExecError.invalidArguments("either argv (non-empty) or shell is required")
         }
 
-        let cwdValue = request.cwd ?? defaultCwd
         if let cwdValue, !cwdValue.isEmpty {
             let expanded = NSString(string: cwdValue).expandingTildeInPath
             process.currentDirectoryURL = URL(fileURLWithPath: expanded)
@@ -139,6 +158,37 @@ enum ExtensionCommandExecutor {
         }
         environment["MUXY_EXTENSION_ID"] = extensionID
         process.environment = environment
+    }
+
+    private static func configureRemoteLaunch(
+        _ process: Process,
+        request: ExecRequest,
+        cwdValue: String?,
+        context: WorkspaceContext
+    ) throws {
+        let workingDirectory = (cwdValue?.isEmpty == false) ? cwdValue : nil
+        let remoteEnv = request.env?.filter { isSafeEnvKey($0.key) }
+        let resolved: ResolvedLaunch
+        if let shell = request.shell {
+            resolved = CommandTransform.resolveShell(
+                shellCommand: shell,
+                workingDirectory: workingDirectory,
+                environment: remoteEnv,
+                in: context
+            )
+        } else if let argv = request.argv, let head = argv.first, !head.isEmpty {
+            resolved = CommandTransform.resolve(
+                executable: head,
+                arguments: Array(argv.dropFirst()),
+                workingDirectory: workingDirectory,
+                environment: remoteEnv,
+                in: context
+            )
+        } else {
+            throw ExecError.invalidArguments("either argv (non-empty) or shell is required")
+        }
+        process.executableURL = URL(fileURLWithPath: resolved.executable)
+        process.arguments = resolved.arguments
     }
 
     private static func isSafeEnvKey(_ key: String) -> Bool {

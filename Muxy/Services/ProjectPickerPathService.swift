@@ -52,14 +52,14 @@ enum ProjectPickerFileSystemDirectoryEntry: Equatable {
     }
 }
 
-protocol ProjectPickerFileSystem {
+protocol ProjectPickerFileSystem: Sendable {
     func directoryState(atPath path: String) -> ProjectPickerFileSystemDirectoryState
     func isReadableFile(atPath path: String) -> Bool
     func contentsOfDirectory(atPath path: String) throws -> [ProjectPickerFileSystemDirectoryEntry]
 }
 
 struct FileManagerProjectPickerFileSystem: ProjectPickerFileSystem {
-    var fileManager: FileManager = .default
+    private var fileManager: FileManager { .default }
 
     func directoryState(atPath path: String) -> ProjectPickerFileSystemDirectoryState {
         var isDirectory = ObjCBool(false)
@@ -131,14 +131,17 @@ struct ProjectPickerPathService {
     static let parentDirectoryRow = ".."
 
     let homeDirectory: String
+    let isRemote: Bool
     private let fileSystem: any ProjectPickerFileSystem
 
     init(
         homeDirectory: String = NSHomeDirectory(),
-        fileSystem: any ProjectPickerFileSystem = FileManagerProjectPickerFileSystem()
+        fileSystem: any ProjectPickerFileSystem = FileManagerProjectPickerFileSystem(),
+        isRemote: Bool = false
     ) {
         self.homeDirectory = homeDirectory
         self.fileSystem = fileSystem
+        self.isRemote = isRemote
     }
 
     func state(for input: String) -> ProjectPickerPathState {
@@ -152,14 +155,34 @@ struct ProjectPickerPathService {
             directoryPath: directoryPath,
             leafFilter: leafFilter,
             confirmPath: confirmPath,
-            standardizedConfirmPath: Self.standardizedPath(confirmPath),
+            standardizedConfirmPath: standardize(confirmPath),
             parentDisplayPath: parentDisplayPath(for: directoryPath),
             completionDisplayPrefix: completionDisplayPrefix(for: trimmedInput, directoryPath: directoryPath)
         )
     }
 
+    func standardize(_ path: String) -> String {
+        isRemote ? Self.standardizedRemotePath(path) : Self.standardizedPath(path)
+    }
+
+    static func standardizedRemotePath(_ path: String) -> String {
+        var components: [String] = []
+        let isAbsolute = path.hasPrefix("/")
+        for segment in path.split(separator: "/", omittingEmptySubsequences: true) {
+            if segment == "." { continue }
+            if segment == "..", let last = components.last, last != ".." {
+                components.removeLast()
+                continue
+            }
+            components.append(String(segment))
+        }
+        let joined = components.joined(separator: "/")
+        if isAbsolute { return "/" + joined }
+        return joined.isEmpty ? "." : joined
+    }
+
     func typedPathState(path: String) -> ProjectPickerTypedPathState {
-        switch fileSystem.directoryState(atPath: Self.standardizedPath(path)) {
+        switch fileSystem.directoryState(atPath: standardize(path)) {
         case .missing:
             .missing
         case .directory:
@@ -170,7 +193,7 @@ struct ProjectPickerPathService {
     }
 
     func defaultLocationStatus(path: String) -> ProjectPickerDefaultLocationStatus {
-        let standardizedPath = Self.standardizedPath(path)
+        let standardizedPath = standardize(path)
         switch fileSystem.directoryState(atPath: standardizedPath) {
         case .missing:
             return .missing
@@ -182,17 +205,30 @@ struct ProjectPickerPathService {
     }
 
     func directorySnapshot(for pathState: ProjectPickerPathState) -> ProjectPickerDirectorySnapshot {
-        do {
-            let items = try fileSystem.contentsOfDirectory(atPath: pathState.directoryPath)
-                .compactMap(\.projectPickerDirectoryItem)
-            return ProjectPickerDirectorySnapshot(rows: pathState.directoryItems(from: items), readFailed: false)
-        } catch {
-            return ProjectPickerDirectorySnapshot(rows: pathState.directoryReadFailureItems, readFailed: true)
+        switch directoryContents(atPath: pathState.directoryPath) {
+        case let .success(items):
+            ProjectPickerDirectorySnapshot(rows: pathState.directoryItems(from: items), readFailed: false)
+        case .failure:
+            ProjectPickerDirectorySnapshot(rows: pathState.directoryReadFailureItems, readFailed: true)
         }
+    }
+
+    func directoryContents(atPath path: String) -> Result<[ProjectPickerDirectoryItem], Error> {
+        do {
+            let items = try fileSystem.contentsOfDirectory(atPath: path).compactMap(\.projectPickerDirectoryItem)
+            return .success(items)
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    func snapshot(for pathState: ProjectPickerPathState, items: [ProjectPickerDirectoryItem]) -> ProjectPickerDirectorySnapshot {
+        ProjectPickerDirectorySnapshot(rows: pathState.directoryItems(from: items), readFailed: false)
     }
 
     func expandedPath(_ path: String) -> String {
         let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !isRemote else { return trimmedPath }
         if trimmedPath == "~" { return homeDirectory }
         if trimmedPath.hasPrefix("~/") {
             return homeDirectory + trimmedPath.dropFirst()
@@ -217,32 +253,50 @@ struct ProjectPickerPathService {
     }
 
     private func confirmPath(for trimmedInput: String) -> String {
-        guard !trimmedInput.isEmpty else { return "/" }
+        guard !trimmedInput.isEmpty else { return isRemote ? homeDirectory : "/" }
         let expandedPath = expandedPath(trimmedInput)
+        if isRemote { return expandedPath }
         guard expandedPath.hasPrefix("/") else { return "/" + expandedPath }
         return expandedPath
     }
 
     private func directoryPath(for trimmedInput: String, expandedInput: String) -> String {
         if trimmedInput.isEmpty { return "/" }
-        if trimmedInput == "~" { return Self.standardizedPath(homeDirectory) }
+        if trimmedInput == "~" { return standardize(homeDirectory) }
         guard !expandedInput.hasSuffix("/") else {
-            return Self.standardizedPath(expandedInput)
+            return standardize(expandedInput)
         }
-        return Self.standardizedPath(URL(fileURLWithPath: expandedInput).deletingLastPathComponent().path)
+        return standardize(parentPath(of: expandedInput))
     }
 
     private func leafFilter(for trimmedInput: String) -> String {
         if trimmedInput.isEmpty || trimmedInput == "~" || trimmedInput.hasSuffix("/") { return "" }
-        return URL(fileURLWithPath: trimmedInput).lastPathComponent
+        return lastComponent(of: trimmedInput)
     }
 
     private func parentDisplayPath(for directoryPath: String) -> String {
         guard directoryPath != "/" else { return "/" }
-        let parent = Self.standardizedPath(URL(fileURLWithPath: directoryPath).deletingLastPathComponent().path)
+        let parent = standardize(parentPath(of: directoryPath))
         guard parent != homeDirectory else { return "~/" }
         guard parent.hasPrefix(homeDirectory + "/") else { return parent == "/" ? "/" : parent + "/" }
         return "~" + parent.dropFirst(homeDirectory.count) + "/"
+    }
+
+    private func parentPath(of path: String) -> String {
+        guard isRemote else {
+            return URL(fileURLWithPath: path).deletingLastPathComponent().path
+        }
+        guard let slashIndex = path.lastIndex(of: "/") else { return path }
+        let parent = String(path[..<slashIndex])
+        return parent.isEmpty ? "/" : parent
+    }
+
+    private func lastComponent(of path: String) -> String {
+        guard isRemote else {
+            return URL(fileURLWithPath: path).lastPathComponent
+        }
+        guard let slashIndex = path.lastIndex(of: "/") else { return path }
+        return String(path[path.index(after: slashIndex)...])
     }
 
     private func completionDisplayPrefix(for trimmedInput: String, directoryPath: String) -> String {

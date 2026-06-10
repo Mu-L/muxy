@@ -203,7 +203,8 @@ struct TerminalBridge: NSViewRepresentable {
             workingDirectory: state.currentWorkingDirectory ?? state.projectPath,
             command: launch.command,
             commandInteractive: launch.interactive,
-            closesOnCommandExit: launch.closesOnCommandExit
+            closesOnCommandExit: launch.closesOnCommandExit,
+            workspaceContext: state.workspaceContext
         )
         if view.envVars.isEmpty, let key = worktreeKey {
             view.envVars = TerminalEnvVarBuilder.build(paneID: state.id, worktreeKey: key)
@@ -314,6 +315,15 @@ struct TerminalBridge: NSViewRepresentable {
 
     private func configureFileOpenCallback(_ view: GhosttyTerminalNSView) {
         let projectPath = state.projectPath
+        guard !state.workspaceContext.isRemote else {
+            view.resolveCmdHoverFile = { _ in false }
+            view.onCmdClickFile = { _ in }
+            view.onOpenURL = { url in
+                guard Self.isExternalLink(url) else { return false }
+                return NSWorkspace.shared.open(url)
+            }
+            return
+        }
         view.resolveCmdHoverFile = { token in
             Self.resolveFilePath(token, projectPath: projectPath) != nil
         }

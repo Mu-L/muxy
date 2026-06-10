@@ -88,7 +88,10 @@ struct ExpandedProjectRow: View {
             isCheckingGitRepo = true
             try? await Task.sleep(for: .seconds(2))
             guard !Task.isCancelled else { return }
-            isGitRepo = await GitWorktreeService.shared.isGitRepository(project.path)
+            isGitRepo = await GitWorktreeService.shared.isGitRepository(
+                project.path,
+                context: project.remoteWorkspaceID == nil ? .local : ActiveWorkspaceContext.shared.current
+            )
             isCheckingGitRepo = false
             if autoExpandWorktrees, isActive, hasWorktreeUI {
                 worktreesExpanded = true
@@ -454,7 +457,10 @@ struct ExpandedProjectRow: View {
 
     @MainActor
     private func requestRemove(worktree: Worktree) async {
-        let hasChanges = await GitWorktreeService.shared.hasUncommittedChanges(worktreePath: worktree.path)
+        let hasChanges = await GitWorktreeService.shared.hasUncommittedChanges(
+            worktreePath: worktree.path,
+            context: project.remoteWorkspaceID == nil ? .local : ActiveWorkspaceContext.shared.current
+        )
         pendingWorktreeRemoval = WorktreeRemovalConfirmation(
             worktree: worktree,
             hasUncommittedChanges: hasChanges

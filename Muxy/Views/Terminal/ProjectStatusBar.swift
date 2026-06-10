@@ -104,14 +104,23 @@ struct ProjectStatusBar: View {
         return StatusContext(path: path)
     }
 
+    private var isRemoteWorkspace: Bool {
+        activePane?.workspaceContext.isRemote ?? false
+    }
+
     private func pathButton(_ fullPath: String) -> some View {
         let displayPath = abbreviatePath(fullPath)
         let truncated = ProjectStatusBar.truncatePath(displayPath, maxCharacters: ProjectStatusBar.pathMaxCharacters)
+        let remote = isRemoteWorkspace
         return Button {
-            revealInFinder(fullPath)
+            if remote {
+                copyToPasteboard(fullPath)
+            } else {
+                revealInFinder(fullPath)
+            }
         } label: {
             HStack(spacing: 4) {
-                Image(systemName: "folder")
+                Image(systemName: remote ? "network" : "folder")
                     .font(.system(size: 10, weight: .semibold))
                 Text(truncated)
                     .font(.system(size: 11, weight: .medium))
@@ -121,10 +130,12 @@ struct ProjectStatusBar: View {
         }
         .buttonStyle(.plain)
         .help(fullPath)
-        .accessibilityLabel("Reveal \(fullPath) in Finder")
+        .accessibilityLabel(remote ? "Copy \(fullPath)" : "Reveal \(fullPath) in Finder")
         .contextMenu {
             Button("Copy Path") { copyToPasteboard(fullPath) }
-            Button("Reveal in Finder") { revealInFinder(fullPath) }
+            if !remote {
+                Button("Reveal in Finder") { revealInFinder(fullPath) }
+            }
         }
     }
 

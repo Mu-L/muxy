@@ -10,9 +10,22 @@ enum WorktreeLocationResolver {
     }
 
     static func worktreeDirectory(for project: Project, slug: String, defaultParentPath: String?) -> String {
-        parentDirectory(for: project, defaultParentPath: defaultParentPath)
+        guard !project.isRemote else {
+            return remoteWorktreeDirectory(for: project, slug: slug)
+        }
+        return parentDirectory(for: project, defaultParentPath: defaultParentPath)
             .appendingPathComponent(slug, isDirectory: true)
             .path
+    }
+
+    static func remoteWorktreeDirectory(for project: Project, slug: String) -> String {
+        let path = project.path.hasSuffix("/") ? String(project.path.dropLast()) : project.path
+        guard let slashIndex = path.lastIndex(of: "/") else {
+            return ".muxy-worktrees/\(slug)"
+        }
+        let parent = String(path[..<slashIndex])
+        let base = parent.isEmpty ? "" : parent
+        return "\(base)/.muxy-worktrees/\(sanitizedDirectoryName(from: project.name))/\(slug)"
     }
 
     static func parentDirectory(for project: Project, defaultParentPath: String?) -> URL {

@@ -51,6 +51,7 @@ struct MuxyApp: App {
                 .environment(projectStore)
                 .environment(worktreeStore)
                 .environment(projectGroupStore)
+                .environment(SSHConnectionService.shared)
                 .environment(GhosttyService.shared)
                 .environment(MuxyConfig.shared)
                 .environment(ThemeService.shared)
@@ -92,7 +93,8 @@ struct MuxyApp: App {
                         let delegate = RemoteServerDelegate(
                             appState: appState,
                             projectStore: projectStore,
-                            worktreeStore: worktreeStore
+                            worktreeStore: worktreeStore,
+                            projectGroupStore: projectGroupStore
                         )
                         delegate.server = server
                         return delegate

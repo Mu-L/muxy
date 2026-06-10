@@ -2,7 +2,11 @@ import Foundation
 import MuxyShared
 
 extension Project {
-    func toDTO() -> ProjectDTO {
+    func toDTO(
+        workspaceID: UUID? = nil,
+        workspaceName: String? = nil,
+        workspaceKind: WorkspaceKindDTO = .local
+    ) -> ProjectDTO {
         ProjectDTO(
             id: id,
             name: name,
@@ -13,7 +17,10 @@ extension Project {
             logo: logo,
             iconColor: iconColor,
             preferredWorktreeParentPath: preferredWorktreeParentPath,
-            worktreesEnabled: worktreesEnabled
+            worktreesEnabled: worktreesEnabled,
+            workspaceID: workspaceID,
+            workspaceName: workspaceName,
+            workspaceKind: workspaceKind
         )
     }
 }

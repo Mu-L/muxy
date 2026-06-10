@@ -1,6 +1,7 @@
 import Foundation
 
 typealias ProjectPickerDirectoryLoader = @Sendable (ProjectPickerPathState) async -> ProjectPickerDirectorySnapshot
+typealias ProjectPickerDirectoryItemsLoader = @Sendable (String) async -> [ProjectPickerDirectoryItem]?
 
 @MainActor
 @Observable
@@ -10,25 +11,43 @@ final class ProjectPickerWorkflow {
     @ObservationIgnored private var directoryLoadID = UUID()
     @ObservationIgnored private var reloadTask: Task<Void, Never>?
     @ObservationIgnored private var loadingMessageTask: Task<Void, Never>?
-    @ObservationIgnored private let directoryLoader: ProjectPickerDirectoryLoader
+    @ObservationIgnored private let directoryLoader: ProjectPickerDirectoryLoader?
+    @ObservationIgnored private let itemsLoader: ProjectPickerDirectoryItemsLoader
     @ObservationIgnored private let reloadDelay: Duration
     @ObservationIgnored private let loadingMessageDelay: Duration
     @ObservationIgnored private var didAppear = false
+    @ObservationIgnored private var directoryCache: [String: [ProjectPickerDirectoryItem]] = [:]
 
     init(
         defaultDisplayPath: String = ProjectPickerDefaultLocation.state.displayPath,
         homeDirectory: String = NSHomeDirectory(),
         projectPaths: [String],
-        directoryLoader: @escaping ProjectPickerDirectoryLoader = ProjectPickerWorkflow.liveDirectoryLoader,
+        directoryLoader: ProjectPickerDirectoryLoader? = nil,
         reloadDelay: Duration = .milliseconds(100),
         loadingMessageDelay: Duration = .milliseconds(500)
     ) {
-        session = ProjectPickerSession(
+        let session = ProjectPickerSession(
             defaultDisplayPath: defaultDisplayPath,
             homeDirectory: homeDirectory,
             projectPaths: projectPaths
         )
+        self.session = session
         self.directoryLoader = directoryLoader
+        itemsLoader = Self.itemsLoader(for: session.pathService)
+        self.reloadDelay = reloadDelay
+        self.loadingMessageDelay = loadingMessageDelay
+    }
+
+    init(
+        projectPaths: [String],
+        context: WorkspaceContext,
+        reloadDelay: Duration = .milliseconds(100),
+        loadingMessageDelay: Duration = .milliseconds(500)
+    ) {
+        let session = ProjectPickerSession(projectPaths: projectPaths, context: context)
+        self.session = session
+        directoryLoader = nil
+        itemsLoader = Self.itemsLoader(for: session.pathService)
         self.reloadDelay = reloadDelay
         self.loadingMessageDelay = loadingMessageDelay
     }
@@ -124,19 +143,51 @@ final class ProjectPickerWorkflow {
         let loadID = UUID()
         directoryLoadID = loadID
 
+        if let cached = directoryCache[pathState.directoryPath] {
+            let snapshot = session.pathService.snapshot(for: pathState, items: cached)
+            applyDirectorySnapshot(snapshot, loadID: loadID)
+            return
+        }
+
         loadingMessageTask = Task { [weak self, loadingMessageDelay] in
             try? await Task.sleep(for: loadingMessageDelay)
             guard !Task.isCancelled else { return }
             self?.showLoadingMessage(loadID: loadID)
         }
 
-        reloadTask = Task { [weak self, reloadDelay, directoryLoader] in
+        if let directoryLoader {
+            reloadTask = Task { [weak self, reloadDelay] in
+                try? await Task.sleep(for: reloadDelay)
+                guard !Task.isCancelled else { return }
+                let snapshot = await directoryLoader(pathState)
+                guard !Task.isCancelled else { return }
+                self?.applyDirectorySnapshot(snapshot, loadID: loadID)
+            }
+            return
+        }
+
+        reloadTask = Task { [weak self, reloadDelay, itemsLoader] in
             try? await Task.sleep(for: reloadDelay)
             guard !Task.isCancelled else { return }
-            let snapshot = await directoryLoader(pathState)
+            let items = await itemsLoader(pathState.directoryPath)
             guard !Task.isCancelled else { return }
-            self?.applyDirectorySnapshot(snapshot, loadID: loadID)
+            self?.applyItems(items, pathState: pathState, loadID: loadID)
         }
+    }
+
+    private func applyItems(
+        _ items: [ProjectPickerDirectoryItem]?,
+        pathState: ProjectPickerPathState,
+        loadID: UUID
+    ) {
+        guard directoryLoadID == loadID else { return }
+        guard let items else {
+            let snapshot = ProjectPickerDirectorySnapshot(rows: pathState.directoryReadFailureItems, readFailed: true)
+            applyDirectorySnapshot(snapshot, loadID: loadID)
+            return
+        }
+        directoryCache[pathState.directoryPath] = items
+        applyDirectorySnapshot(session.pathService.snapshot(for: pathState, items: items), loadID: loadID)
     }
 
     private func cancelDirectoryReload() {
@@ -158,10 +209,15 @@ final class ProjectPickerWorkflow {
         session.applyDirectorySnapshot(snapshot)
     }
 
-    private static let liveDirectoryLoader: ProjectPickerDirectoryLoader = { pathState in
-        await Task.detached(priority: .userInitiated) {
-            ProjectPickerPathService(homeDirectory: pathState.homeDirectory).directorySnapshot(for: pathState)
-        }.value
+    private static func itemsLoader(for pathService: ProjectPickerPathService) -> ProjectPickerDirectoryItemsLoader {
+        { directoryPath in
+            await Task.detached(priority: .userInitiated) {
+                switch pathService.directoryContents(atPath: directoryPath) {
+                case let .success(items): items
+                case .failure: nil
+                }
+            }.value
+        }
     }
 }
 

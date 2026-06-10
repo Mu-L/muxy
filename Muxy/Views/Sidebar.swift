@@ -138,11 +138,12 @@ struct Sidebar: View {
     }
 
     private var homeProject: Project? {
-        showHomeProject ? Project.home : nil
+        guard !projectGroupStore.isRemoteWorkspaceActive else { return nil }
+        return showHomeProject ? Project.home : nil
     }
 
     private var displayedProjects: [Project] {
-        projectGroupStore.filteredProjects(from: projectStore.storedProjects)
+        projectGroupStore.displayProjects(localProjects: projectStore.storedProjects)
     }
 
     private var projectList: some View {
@@ -190,11 +191,11 @@ struct Sidebar: View {
                 isAnyDragging: dragState.draggedID != nil,
                 onSelect: { select(project) },
                 onRemove: { remove(project) },
-                onRename: { projectStore.rename(id: project.id, to: $0) },
+                onRename: { renameProject(project, to: $0) },
                 onSetLogo: { projectStore.setLogo(id: project.id, to: $0) },
                 onSetIcon: { projectStore.setIcon(id: project.id, to: $0) },
                 onSetIconColor: { projectStore.setIconColor(id: project.id, to: $0) },
-                onSetWorktreesEnabled: { projectStore.setWorktreesEnabled(id: project.id, to: $0) }
+                onSetWorktreesEnabled: { setWorktreesEnabled(project, to: $0) }
             )
         } else {
             ProjectRow(
@@ -203,13 +204,29 @@ struct Sidebar: View {
                 isAnyDragging: dragState.draggedID != nil,
                 onSelect: { select(project) },
                 onRemove: { remove(project) },
-                onRename: { projectStore.rename(id: project.id, to: $0) },
+                onRename: { renameProject(project, to: $0) },
                 onSetLogo: { projectStore.setLogo(id: project.id, to: $0) },
                 onSetIcon: { projectStore.setIcon(id: project.id, to: $0) },
                 onSetIconColor: { projectStore.setIconColor(id: project.id, to: $0) },
-                onSetWorktreesEnabled: { projectStore.setWorktreesEnabled(id: project.id, to: $0) }
+                onSetWorktreesEnabled: { setWorktreesEnabled(project, to: $0) }
             )
         }
+    }
+
+    private func renameProject(_ project: Project, to name: String) {
+        guard !project.isRemote else {
+            projectGroupStore.renameRemoteProject(id: project.id, to: name)
+            return
+        }
+        projectStore.rename(id: project.id, to: name)
+    }
+
+    private func setWorktreesEnabled(_ project: Project, to enabled: Bool) {
+        guard !project.isRemote else {
+            projectGroupStore.setRemoteProjectWorktreesEnabled(id: project.id, to: enabled)
+            return
+        }
+        projectStore.setWorktreesEnabled(id: project.id, to: enabled)
     }
 
     private func shortcutIndex(forRowAt offset: Int) -> Int? {
@@ -265,6 +282,14 @@ struct Sidebar: View {
     }
 
     private func performRemove(_ project: Project) {
+        guard !project.isRemote else {
+            if let workspaceID = project.remoteWorkspaceID {
+                projectGroupStore.removeRemoteProject(id: project.id, fromGroup: workspaceID)
+            }
+            appState.removeProject(project.id)
+            worktreeStore.removeProject(project.id)
+            return
+        }
         let capturedProject = project
         let knownWorktrees = worktreeStore.list(for: project.id)
         Task {

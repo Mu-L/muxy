@@ -18,17 +18,50 @@ final class ProjectGroupStore {
     func selectGroup(id: UUID) {
         activeGroupID = id
         persistence.saveActiveGroupID(id)
+        syncActiveWorkspaceContext()
     }
 
     func clearGroupSelection() {
         activeGroupID = nil
         persistence.saveActiveGroupID(nil)
+        syncActiveWorkspaceContext()
+    }
+
+    private func syncActiveWorkspaceContext() {
+        ActiveWorkspaceContext.shared.update(activeWorkspaceContext)
     }
 
     func filteredProjects(from projects: [Project]) -> [Project] {
-        guard let activeGroupID else { return projects }
-        guard let group = groups.first(where: { $0.id == activeGroupID }) else { return projects }
+        guard let group = activeGroup else { return projects }
+        guard group.type == .local else { return [] }
         return projects.filter { group.projectIDs.contains($0.id) }
+    }
+
+    var activeRemoteProjects: [RemoteProject] {
+        guard let group = activeGroup, group.type == .ssh else { return [] }
+        return group.remoteProjects
+    }
+
+    var isRemoteWorkspaceActive: Bool {
+        activeGroup?.type == .ssh
+    }
+
+    func displayProjects(localProjects: [Project]) -> [Project] {
+        guard let group = activeGroup, group.type == .ssh else {
+            return filteredProjects(from: localProjects)
+        }
+        return group.remoteProjects.enumerated().map { index, remote in
+            remote.asProject(workspaceID: group.id, sortOrder: index)
+        }
+    }
+
+    var activeGroup: ProjectGroup? {
+        guard let activeGroupID else { return nil }
+        return groups.first(where: { $0.id == activeGroupID })
+    }
+
+    var activeWorkspaceContext: WorkspaceContext {
+        activeGroup?.workspaceContext ?? .local
     }
 
     func addGroup(name: String) {
@@ -38,10 +71,66 @@ final class ProjectGroupStore {
         save()
     }
 
+    @discardableResult
+    func addSSHWorkspace(name: String, data: SSHWorkspaceData) -> ProjectGroup {
+        let group = ProjectGroup(
+            name: name,
+            sortOrder: groups.count,
+            type: .ssh,
+            sshData: data
+        )
+        groups.append(group)
+        save()
+        return group
+    }
+
+    func updateSSHWorkspace(id: UUID, data: SSHWorkspaceData) {
+        guard let index = groups.firstIndex(where: { $0.id == id }) else { return }
+        groups[index].sshData = data
+        save()
+    }
+
+    @discardableResult
+    func addRemoteProject(name: String, path: String, toGroup groupID: UUID) -> RemoteProject? {
+        guard let index = groups.firstIndex(where: { $0.id == groupID }) else { return nil }
+        if let existing = groups[index].remoteProjects.first(where: { $0.path == path }) {
+            return existing
+        }
+        let project = RemoteProject(name: name, path: path)
+        groups[index].remoteProjects.append(project)
+        save()
+        return project
+    }
+
+    func removeRemoteProject(id: UUID, fromGroup groupID: UUID) {
+        guard let index = groups.firstIndex(where: { $0.id == groupID }) else { return }
+        groups[index].remoteProjects.removeAll { $0.id == id }
+        save()
+    }
+
+    func updateRemoteProject(id: UUID, _ mutate: (inout RemoteProject) -> Void) {
+        for groupIndex in groups.indices {
+            guard let projectIndex = groups[groupIndex].remoteProjects.firstIndex(where: { $0.id == id })
+            else { continue }
+            mutate(&groups[groupIndex].remoteProjects[projectIndex])
+            save()
+            return
+        }
+    }
+
+    func renameRemoteProject(id: UUID, to name: String) {
+        updateRemoteProject(id: id) { $0.name = name }
+    }
+
+    func setRemoteProjectWorktreesEnabled(id: UUID, to enabled: Bool) {
+        updateRemoteProject(id: id) { $0.worktreesEnabled = enabled }
+    }
+
     func removeGroup(id: UUID) {
         if activeGroupID == id {
             activeGroupID = nil
             persistence.saveActiveGroupID(nil)
+            syncActiveWorkspaceContext()
         }
         groups.removeAll { $0.id == id }
         save()
@@ -104,5 +193,6 @@ final class ProjectGroupStore {
         } else if storedActive != nil {
             persistence.saveActiveGroupID(nil)
         }
+        syncActiveWorkspaceContext()
     }
 }

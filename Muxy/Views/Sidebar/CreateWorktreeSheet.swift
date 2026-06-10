@@ -27,9 +27,16 @@ struct CreateWorktreeSheet: View {
     @State private var runSetup = false
     @State private var inProgress = false
     @State private var errorMessage: String?
+    @State private var remotePath: String = ""
+    @State private var remotePathEdited = false
 
-    private let gitRepository = GitRepositoryService()
-    private let gitWorktree = GitWorktreeService.shared
+    private var workspaceContext: WorkspaceContext {
+        ActiveWorkspaceContext.shared.current
+    }
+
+    private var gitRepository: GitRepositoryService {
+        GitRepositoryService(context: workspaceContext)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: UIMetrics.scaled(14)) {
@@ -110,6 +117,7 @@ struct CreateWorktreeSheet: View {
             loadSetupCommands()
         }
         .onChange(of: name) { _, newValue in
+            syncRemotePath()
             guard createNewBranch, !branchNameEdited else { return }
             branchName = newValue
         }
@@ -122,29 +130,46 @@ struct CreateWorktreeSheet: View {
     private var locationSection: some View {
         VStack(alignment: .leading, spacing: UIMetrics.spacing3) {
             Text("Location").font(.system(size: UIMetrics.fontFootnote)).foregroundStyle(MuxyTheme.fgMuted)
-            HStack(spacing: UIMetrics.spacing4) {
-                Text(parentDirectoryPath)
-                    .font(.system(size: UIMetrics.fontFootnote, design: .monospaced))
-                    .foregroundStyle(MuxyTheme.fg)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, UIMetrics.spacing4)
-                    .padding(.vertical, UIMetrics.spacing3)
-                    .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
-
-                Button("Choose Folder...") {
-                    chooseParentDirectory()
-                }
-                .fixedSize(horizontal: true, vertical: false)
-
-                Button("Use Default") {
-                    selectedParentPath = nil
-                    usesProjectLocation = false
-                }
-                .fixedSize(horizontal: true, vertical: false)
-                .disabled(!usesProjectLocation)
+            if project.isRemote {
+                remoteLocationField
+            } else {
+                localLocationRow
             }
+        }
+    }
+
+    private var remoteLocationField: some View {
+        TextField("~/.muxy-worktrees/<name>", text: $remotePath)
+            .textFieldStyle(.roundedBorder)
+            .font(.system(size: UIMetrics.fontFootnote, design: .monospaced))
+            .onChange(of: remotePath) { _, newValue in
+                remotePathEdited = newValue != worktreeDirectoryPath
+            }
+    }
+
+    private var localLocationRow: some View {
+        HStack(spacing: UIMetrics.spacing4) {
+            Text(worktreeDirectoryPath)
+                .font(.system(size: UIMetrics.fontFootnote, design: .monospaced))
+                .foregroundStyle(MuxyTheme.fg)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, UIMetrics.spacing4)
+                .padding(.vertical, UIMetrics.spacing3)
+                .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusSM))
+
+            Button("Choose Folder...") {
+                chooseParentDirectory()
+            }
+            .fixedSize(horizontal: true, vertical: false)
+
+            Button("Use Default") {
+                selectedParentPath = nil
+                usesProjectLocation = false
+            }
+            .fixedSize(horizontal: true, vertical: false)
+            .disabled(!usesProjectLocation)
         }
     }
 
@@ -211,6 +236,10 @@ struct CreateWorktreeSheet: View {
     }
 
     private func loadSetupCommands() {
+        guard !project.isRemote else {
+            setupCommands = []
+            return
+        }
         guard let config = WorktreeConfig.load(fromProjectPath: project.path) else {
             setupCommands = []
             return
@@ -219,10 +248,19 @@ struct CreateWorktreeSheet: View {
     }
 
     private func loadLocation() {
+        guard !project.isRemote else {
+            syncRemotePath()
+            return
+        }
         guard selectedParentPath == nil, !usesProjectLocation else { return }
         guard let path = WorktreeLocationResolver.normalizedPath(project.preferredWorktreeParentPath) else { return }
         selectedParentPath = path
         usesProjectLocation = true
+    }
+
+    private func syncRemotePath() {
+        guard project.isRemote, !remotePathEdited else { return }
+        remotePath = worktreeDirectoryPath
     }
 
     private var resolvedProject: Project {
@@ -231,9 +269,18 @@ struct CreateWorktreeSheet: View {
         return resolved
     }
 
-    private var parentDirectoryPath: String {
-        WorktreeLocationResolver
+    private var displaySlug: String {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? "<name>" : Self.slug(from: trimmed)
+    }
+
+    private var worktreeDirectoryPath: String {
+        guard !project.isRemote else {
+            return WorktreeLocationResolver.remoteWorktreeDirectory(for: project, slug: displaySlug)
+        }
+        return WorktreeLocationResolver
             .parentDirectory(for: resolvedProject, defaultParentPath: defaultWorktreeParentPath)
+            .appendingPathComponent(displaySlug, isDirectory: true)
             .path
     }
 
@@ -251,6 +298,7 @@ struct CreateWorktreeSheet: View {
 
     private var canCreate: Bool {
         guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return false }
+        if project.isRemote, remotePath.trimmingCharacters(in: .whitespaces).isEmpty { return false }
         if createNewBranch {
             return !branchName.trimmingCharacters(in: .whitespaces).isEmpty
         }
@@ -293,62 +341,57 @@ struct CreateWorktreeSheet: View {
             : selectedExistingBranch
 
         let slug = Self.slug(from: trimmedName)
-        let parentDirectory = parentDirectoryPath
-        let worktreeDirectory = URL(fileURLWithPath: parentDirectory, isDirectory: true)
-            .appendingPathComponent(slug, isDirectory: true)
-            .path
+        let worktreeDirectory = resolvedWorktreeDirectory(slug: slug)
 
-        if FileManager.default.fileExists(atPath: worktreeDirectory) {
+        if await workspaceContext.fileOps.exists(at: worktreeDirectory) {
             inProgress = false
             errorMessage = "A worktree with this name already exists on disk."
-            return
-        }
-
-        do {
-            try await GitProcessRunner.offMainThrowing {
-                try FileManager.default.createDirectory(
-                    atPath: parentDirectory,
-                    withIntermediateDirectories: true,
-                    attributes: nil
-                )
-            }
-        } catch {
-            inProgress = false
-            errorMessage = error.localizedDescription
             return
         }
 
         let trimmedBase = selectedBaseBranch.trimmingCharacters(in: .whitespaces)
         let baseBranch: String? = createNewBranch && !trimmedBase.isEmpty ? trimmedBase : nil
 
-        do {
-            try await gitWorktree.addWorktree(
-                repoPath: project.path,
-                path: worktreeDirectory,
-                branch: branch,
-                createBranch: createNewBranch,
-                baseBranch: baseBranch
-            )
-        } catch {
-            inProgress = false
-            errorMessage = error.localizedDescription
-            return
-        }
-
-        let worktree = Worktree(
+        let request = WorktreeCreationRequest(
             name: trimmedName,
             path: worktreeDirectory,
             branch: branch,
-            ownsBranch: createNewBranch,
-            isPrimary: false
+            createBranch: createNewBranch,
+            baseBranch: baseBranch
         )
-        projectStore.setPreferredWorktreeParentPath(
-            id: project.id,
-            to: usesProjectLocation ? selectedParentPath : nil
-        )
-        worktreeStore.add(worktree, to: project.id)
-        inProgress = false
-        onFinish(.created(worktree, runSetup: runSetup))
+
+        do {
+            let worktree = try await worktreeStore.createWorktree(project: project, request: request)
+            if !project.isRemote {
+                projectStore.setPreferredWorktreeParentPath(
+                    id: project.id,
+                    to: usesProjectLocation ? selectedParentPath : nil
+                )
+            }
+            inProgress = false
+            onFinish(.created(worktree, runSetup: runSetup))
+        } catch {
+            inProgress = false
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func resolvedWorktreeDirectory(slug: String) -> String {
+        guard !project.isRemote else {
+            let trimmed = remotePath.trimmingCharacters(in: .whitespaces)
+            return trimmed.isEmpty
+                ? WorktreeLocationResolver.remoteWorktreeDirectory(for: project, slug: slug)
+                : trimmed
+        }
+        return URL(fileURLWithPath: parentDirectoryPath, isDirectory: true)
+            .appendingPathComponent(slug, isDirectory: true)
+            .path
+    }
+
+    private var parentDirectoryPath: String {
+        WorktreeLocationResolver
+            .parentDirectory(for: resolvedProject, defaultParentPath: defaultWorktreeParentPath)
+            .path
     }
 
     private static func slug(from name: String) -> String {

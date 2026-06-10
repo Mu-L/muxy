@@ -6,11 +6,13 @@ struct ProjectPickerOverlay: View {
     let onConfirm: (String, Bool) -> ProjectOpenConfirmationResult
     let onChooseFinder: () -> Void
     let onDismiss: () -> Void
+    let isRemote: Bool
 
     @State private var workflow: ProjectPickerWorkflow
 
     init(
         projectPaths: [String],
+        context: WorkspaceContext = .local,
         onConfirm: @escaping (String, Bool) -> ProjectOpenConfirmationResult,
         onChooseFinder: @escaping () -> Void,
         onDismiss: @escaping () -> Void
@@ -19,7 +21,8 @@ struct ProjectPickerOverlay: View {
         self.onConfirm = onConfirm
         self.onChooseFinder = onChooseFinder
         self.onDismiss = onDismiss
-        _workflow = State(initialValue: ProjectPickerWorkflow(projectPaths: projectPaths))
+        isRemote = context.isRemote
+        _workflow = State(initialValue: ProjectPickerWorkflow(projectPaths: projectPaths, context: context))
     }
 
     private var inputBinding: Binding<String> {
@@ -91,36 +94,38 @@ struct ProjectPickerOverlay: View {
             )
             .buttonStyle(.plain)
 
-            Rectangle()
-                .fill(MuxyTheme.border)
-                .frame(width: 1)
+            if !isRemote {
+                Rectangle()
+                    .fill(MuxyTheme.border)
+                    .frame(width: 1)
 
-            Menu {
-                Button {
-                    chooseWithFinder()
-                } label: {
-                    Label("Choose in Finder", systemImage: "folder")
-                }
-                Button {
-                    editDefaultLocation()
-                } label: {
-                    if defaultLocationNeedsFix {
-                        Label("Fix Default Location", systemImage: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
-                    } else {
-                        Label("Edit Default Location", systemImage: "gearshape")
+                Menu {
+                    Button {
+                        chooseWithFinder()
+                    } label: {
+                        Label("Choose in Finder", systemImage: "folder")
                     }
+                    Button {
+                        editDefaultLocation()
+                    } label: {
+                        if defaultLocationNeedsFix {
+                            Label("Fix Default Location", systemImage: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                        } else {
+                            Label("Edit Default Location", systemImage: "gearshape")
+                        }
+                    }
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: UIMetrics.fontCaption, weight: .bold))
+                        .padding(.horizontal, UIMetrics.spacing3)
+                        .padding(.vertical, UIMetrics.spacing2)
+                        .contentShape(Rectangle())
                 }
-            } label: {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: UIMetrics.fontCaption, weight: .bold))
-                    .padding(.horizontal, UIMetrics.spacing3)
-                    .padding(.vertical, UIMetrics.spacing2)
-                    .contentShape(Rectangle())
+                .menuStyle(.button)
+                .menuIndicator(.hidden)
+                .buttonStyle(.plain)
             }
-            .menuStyle(.button)
-            .menuIndicator(.hidden)
-            .buttonStyle(.plain)
         }
         .foregroundStyle(MuxyTheme.fg)
         .background(MuxyTheme.surface, in: RoundedRectangle(cornerRadius: UIMetrics.radiusMD))

@@ -11,6 +11,7 @@ final class GhosttyTerminalNSView: NSView {
     private let command: String?
     private let commandInteractive: Bool
     private let commandClosesOnExit: Bool
+    private let workspaceContext: WorkspaceContext
     var envVars: [(key: String, value: String)] = []
     var onTitleChange: ((String) -> Void)?
     var onWorkingDirectoryChange: ((String) -> Void)?
@@ -68,12 +69,14 @@ final class GhosttyTerminalNSView: NSView {
         workingDirectory: String,
         command: String? = nil,
         commandInteractive: Bool = false,
-        closesOnCommandExit: Bool = true
+        closesOnCommandExit: Bool = true,
+        workspaceContext: WorkspaceContext = .local
     ) {
         self.workingDirectory = workingDirectory
         self.command = command
         self.commandInteractive = commandInteractive
         commandClosesOnExit = closesOnCommandExit
+        self.workspaceContext = workspaceContext
         super.init(frame: .zero)
         wantsLayer = true
         setupTrackingArea()
@@ -135,17 +138,32 @@ final class GhosttyTerminalNSView: NSView {
         cleanupSurfaceConfigPointers()
 
         var cEnvVars: [ghostty_env_var_s] = []
-        guard let workingDirectoryPointer = strdup(workingDirectory) else { return }
+        let localWorkingDirectory = workspaceContext.isRemote
+            ? NSHomeDirectory()
+            : workingDirectory
+        guard let workingDirectoryPointer = strdup(localWorkingDirectory) else { return }
         surfaceCStringPointers.append(workingDirectoryPointer)
         config.working_directory = UnsafePointer(workingDirectoryPointer)
 
-        if let command = launchCommand,
-           let loginWrapped = strdup(TerminalLaunchCommand.shellCommand(
-               interactive: commandInteractive,
-               keepsShellOpen: !commandClosesOnExit
-           )),
-           let commandKey = strdup(TerminalLaunchCommand.environmentKey),
-           let commandValue = strdup(command)
+        if let destination = workspaceContext.sshDestination {
+            if let remoteWrapped = strdup(TerminalLaunchCommand.remoteShellCommand(
+                destination: destination,
+                workingDirectory: workingDirectory,
+                startupCommand: launchCommand,
+                interactive: commandInteractive,
+                keepsShellOpen: !commandClosesOnExit
+            )) {
+                surfaceCStringPointers.append(remoteWrapped)
+                config.command = UnsafePointer(remoteWrapped)
+                config.wait_after_command = false
+            }
+        } else if let command = launchCommand,
+                  let loginWrapped = strdup(TerminalLaunchCommand.shellCommand(
+                      interactive: commandInteractive,
+                      keepsShellOpen: !commandClosesOnExit
+                  )),
+                  let commandKey = strdup(TerminalLaunchCommand.environmentKey),
+                  let commandValue = strdup(command)
         {
             surfaceCStringPointers.append(contentsOf: [loginWrapped, commandKey, commandValue])
             cEnvVars.append(ghostty_env_var_s(key: commandKey, value: commandValue))

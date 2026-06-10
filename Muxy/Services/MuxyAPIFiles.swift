@@ -8,6 +8,7 @@ extension MuxyAPI {
             let appState: AppState
             let projectStore: ProjectStore
             let worktreeStore: WorktreeStore
+            let workspaceContext: WorkspaceContext
         }
 
         nonisolated static let maxReadBytes = 5 * 1024 * 1024
@@ -17,7 +18,12 @@ extension MuxyAPI {
             path: String,
             context: Context
         ) async -> Result<[FileTreeEntry], APIError> {
-            await read(projectIdentifier, context) { root in
+            if let remote = context.workspaceContext.remoteFileService {
+                return await read(projectIdentifier, context) { root in
+                    try await remote.list(root: root, relativePath: path)
+                }
+            }
+            return await read(projectIdentifier, context) { root in
                 let absolute = try contained(root: root, relativePath: path)
                 return await FileTreeService.loadChildren(of: absolute, repoRoot: root)
             }
@@ -34,7 +40,12 @@ extension MuxyAPI {
             path: String,
             context: Context
         ) async -> Result<ReadResult, APIError> {
-            await read(projectIdentifier, context) { root in
+            if let remote = context.workspaceContext.remoteFileService {
+                return await read(projectIdentifier, context) { root in
+                    try await remote.read(root: root, relativePath: path, maxBytes: maxReadBytes)
+                }
+            }
+            return await read(projectIdentifier, context) { root in
                 try await GitProcessRunner.offMainThrowing {
                     let absolute = try contained(root: root, relativePath: path)
                     let url = URL(fileURLWithPath: absolute)
@@ -64,7 +75,12 @@ extension MuxyAPI {
             path: String,
             context: Context
         ) async -> Result<StatResult, APIError> {
-            await read(projectIdentifier, context) { root in
+            if let remote = context.workspaceContext.remoteFileService {
+                return await read(projectIdentifier, context) { root in
+                    try await remote.stat(root: root, relativePath: path)
+                }
+            }
+            return await read(projectIdentifier, context) { root in
                 try await GitProcessRunner.offMainThrowing {
                     let absolute = try contained(root: root, relativePath: path)
                     var isDirectory: ObjCBool = false
@@ -89,7 +105,10 @@ extension MuxyAPI {
             context: Context
         ) async -> Result<String, APIError> {
             await write(projectIdentifier, operation: "write", path: path, context: context) { root in
-                try await GitProcessRunner.offMainThrowing {
+                if let remote = context.workspaceContext.remoteFileService {
+                    return try await remote.write(root: root, relativePath: path, contents: contents)
+                }
+                return try await GitProcessRunner.offMainThrowing {
                     let absolute = try contained(root: root, relativePath: path)
                     try FileSystemOperations.writeFileSync(contents: contents, atAbsolutePath: absolute)
                     return relative(absolute, root: root)
@@ -103,7 +122,10 @@ extension MuxyAPI {
             context: Context
         ) async -> Result<String, APIError> {
             await write(projectIdentifier, operation: "mkdir", path: path, context: context) { root in
-                try await GitProcessRunner.offMainThrowing {
+                if let remote = context.workspaceContext.remoteFileService {
+                    return try await remote.mkdir(root: root, relativePath: path)
+                }
+                return try await GitProcessRunner.offMainThrowing {
                     let absolute = try contained(root: root, relativePath: path)
                     let parent = (absolute as NSString).deletingLastPathComponent
                     let name = (absolute as NSString).lastPathComponent
@@ -120,6 +142,9 @@ extension MuxyAPI {
             context: Context
         ) async -> Result<String, APIError> {
             await write(projectIdentifier, operation: "rename", path: path, context: context) { root in
+                if let remote = context.workspaceContext.remoteFileService {
+                    return try await remote.rename(root: root, relativePath: path, newName: newName)
+                }
                 let moved = try await GitProcessRunner.offMainThrowing {
                     let absolute = try contained(root: root, relativePath: path)
                     return try FileSystemOperations.renameSync(at: absolute, to: newName)
@@ -135,6 +160,9 @@ extension MuxyAPI {
             context: Context
         ) async -> Result<[String], APIError> {
             await write(projectIdentifier, operation: "move", path: destination, context: context) { root in
+                if let remote = context.workspaceContext.remoteFileService {
+                    return try await remote.move(root: root, paths: paths, into: destination)
+                }
                 let moved = try await GitProcessRunner.offMainThrowing {
                     let destinationAbsolute = try contained(root: root, relativePath: destination)
                     let sources = try paths.map { try contained(root: root, relativePath: $0) }
@@ -153,6 +181,9 @@ extension MuxyAPI {
             context: Context
         ) async -> Result<Void, APIError> {
             await write(projectIdentifier, operation: "delete", path: paths.first ?? "", context: context) { root in
+                if let remote = context.workspaceContext.remoteFileService {
+                    return try await remote.delete(root: root, paths: paths)
+                }
                 let absolutes = try await GitProcessRunner.offMainThrowing {
                     try paths.map { try contained(root: root, relativePath: $0) }
                 }
@@ -263,6 +294,9 @@ extension MuxyAPI {
         }
 
         private static func workspaceRoot(_ projectIdentifier: String?, context: Context) -> String? {
+            if context.workspaceContext.isRemote {
+                return remoteWorkspaceRoot(projectIdentifier, context: context)
+            }
             let project: Project? = if let projectIdentifier, !projectIdentifier.isEmpty {
                 matchProject(projectIdentifier, in: context.projectStore.projects)
             } else if let activeProjectID = context.appState.activeProjectID {
@@ -271,12 +305,29 @@ extension MuxyAPI {
                 nil
             }
             guard let project else { return nil }
-            if let worktreeID = context.appState.activeWorktreeID[project.id],
-               let worktree = context.worktreeStore.worktree(projectID: project.id, worktreeID: worktreeID)
+            return activeWorktreePath(for: project.id, fallback: project.path, context: context)
+        }
+
+        private static func remoteWorkspaceRoot(_ projectIdentifier: String?, context: Context) -> String? {
+            if let projectIdentifier, !projectIdentifier.isEmpty {
+                return projectIdentifier
+            }
+            guard let activeProjectID = context.appState.activeProjectID else { return nil }
+            if let worktreeID = context.appState.activeWorktreeID[activeProjectID],
+               let worktree = context.worktreeStore.worktree(projectID: activeProjectID, worktreeID: worktreeID)
             {
                 return worktree.path
             }
-            return project.path
+            return context.worktreeStore.primary(for: activeProjectID)?.path
+        }
+
+        private static func activeWorktreePath(for projectID: UUID, fallback: String, context: Context) -> String {
+            if let worktreeID = context.appState.activeWorktreeID[projectID],
+               let worktree = context.worktreeStore.worktree(projectID: projectID, worktreeID: worktreeID)
+            {
+                return worktree.path
+            }
+            return fallback
         }
 
         private static func matchProject(_ identifier: String, in projects: [Project]) -> Project? {

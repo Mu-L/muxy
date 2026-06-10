@@ -17,6 +17,7 @@ final class TerminalPaneState: Identifiable {
     let startupCommandInteractive: Bool
     let closesOnStartupCommandExit: Bool
     let externalEditorFilePath: String?
+    let workspaceContext: WorkspaceContext
     var isOffline = false
     let searchState = TerminalSearchState()
     @ObservationIgnored private var titleDebounceTask: Task<Void, Never>?
@@ -29,7 +30,8 @@ final class TerminalPaneState: Identifiable {
         startupCommand: String? = nil,
         startupCommandInteractive: Bool = false,
         closesOnStartupCommandExit: Bool = true,
-        externalEditorFilePath: String? = nil
+        externalEditorFilePath: String? = nil,
+        workspaceContext: WorkspaceContext = ActiveWorkspaceContext.shared.current
     ) {
         self.id = id
         self.projectPath = projectPath
@@ -39,6 +41,7 @@ final class TerminalPaneState: Identifiable {
         self.startupCommandInteractive = startupCommandInteractive
         self.closesOnStartupCommandExit = closesOnStartupCommandExit
         self.externalEditorFilePath = externalEditorFilePath
+        self.workspaceContext = workspaceContext
     }
 
     func consumeRestoredLaunch() -> TerminalPaneLaunch {

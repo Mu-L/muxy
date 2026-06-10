@@ -12,17 +12,27 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     private let appState: AppState
     private let projectStore: ProjectStore
     private let worktreeStore: WorktreeStore
-    private let gitService = GitRepositoryService()
+    private let projectGroupStore: ProjectGroupStore
+    private var gitService: GitRepositoryService {
+        GitRepositoryService(context: ActiveWorkspaceContext.shared.current)
+    }
+
     private var workspaceBroadcastTask: Task<Void, Never>?
     private var projectsBroadcastTask: Task<Void, Never>?
     weak var server: MuxyRemoteServer? {
         didSet { RemoteTerminalStreamer.shared.server = server }
     }
 
-    init(appState: AppState, projectStore: ProjectStore, worktreeStore: WorktreeStore) {
+    init(
+        appState: AppState,
+        projectStore: ProjectStore,
+        worktreeStore: WorktreeStore,
+        projectGroupStore: ProjectGroupStore
+    ) {
         self.appState = appState
         self.projectStore = projectStore
         self.worktreeStore = worktreeStore
+        self.projectGroupStore = projectGroupStore
         PaneOwnershipStore.shared.onOwnershipChanged = { [weak self] paneID, owner in
             TerminalViewRegistry.shared.existingView(for: paneID)?.remoteOwnershipDidChange()
             self?.applyOwnerTheme(paneID: paneID, owner: owner)
@@ -107,7 +117,25 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     }
 
     private func projectSnapshots() -> [ProjectDTO] {
-        projectStore.projects.map { $0.toDTO() }
+        let localProjects = projectStore.projects.map { $0.toDTO(workspaceKind: .local) }
+        let remoteProjects = projectGroupStore.groups
+            .filter { $0.type == .ssh }
+            .flatMap { group in
+                group.remoteProjects.enumerated().map { index, remote in
+                    remote.asProject(workspaceID: group.id, sortOrder: index)
+                        .toDTO(workspaceID: group.id, workspaceName: group.name, workspaceKind: .ssh)
+                }
+            }
+        return localProjects + remoteProjects
+    }
+
+    private func resolveRemoteProject(_ projectID: UUID) -> (project: Project, group: ProjectGroup)? {
+        for group in projectGroupStore.groups where group.type == .ssh {
+            guard let index = group.remoteProjects.firstIndex(where: { $0.id == projectID }) else { continue }
+            let project = group.remoteProjects[index].asProject(workspaceID: group.id, sortOrder: index)
+            return (project, group)
+        }
+        return nil
     }
 
     private func broadcastWorkspaces() {
@@ -125,9 +153,20 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
     }
 
     func selectProject(_ projectID: UUID) {
-        guard let project = projectStore.projects.first(where: { $0.id == projectID }) else { return }
-        if appState.activeProjectID == projectID { return }
-        let worktreeList = worktreeStore.list(for: projectID)
+        if let project = projectStore.projects.first(where: { $0.id == projectID }) {
+            if projectGroupStore.isRemoteWorkspaceActive { projectGroupStore.clearGroupSelection() }
+            selectLoadedProject(project)
+            return
+        }
+        guard let resolved = resolveRemoteProject(projectID) else { return }
+        projectGroupStore.selectGroup(id: resolved.group.id)
+        worktreeStore.ensurePrimary(for: resolved.project)
+        selectLoadedProject(resolved.project)
+    }
+
+    private func selectLoadedProject(_ project: Project) {
+        if appState.activeProjectID == project.id { return }
+        let worktreeList = worktreeStore.list(for: project.id)
         guard let worktree = worktreeList.first(where: \.isPrimary) ?? worktreeList.first else { return }
         appState.selectProject(project, worktree: worktree)
     }
@@ -589,7 +628,9 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         createBranch: Bool,
         baseBranch: String?
     ) async throws -> WorktreeDTO {
-        guard let project = projectStore.projects.first(where: { $0.id == projectID }) else {
+        guard let project = projectStore.projects.first(where: { $0.id == projectID })
+            ?? resolveRemoteProject(projectID)?.project
+        else {
             throw RemoteVCSError.projectNotFound
         }
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
@@ -605,37 +646,18 @@ final class RemoteServerDelegate: MuxyRemoteServerDelegate {
         let slug = Self.worktreeSlug(from: trimmedName)
         let worktreeDirectory = WorktreeLocationResolver.worktreeDirectory(for: project, slug: slug)
 
-        if FileManager.default.fileExists(atPath: worktreeDirectory) {
+        if await ActiveWorkspaceContext.shared.current.fileOps.exists(at: worktreeDirectory) {
             throw RemoteVCSError.invalidInput("A worktree with this name already exists on disk.")
         }
 
-        let parentDirectory = URL(fileURLWithPath: worktreeDirectory)
-            .deletingLastPathComponent()
-            .path
-        try await GitProcessRunner.offMainThrowing {
-            try FileManager.default.createDirectory(
-                atPath: parentDirectory,
-                withIntermediateDirectories: true,
-                attributes: nil
-            )
-        }
-
-        try await GitWorktreeService.shared.addWorktree(
-            repoPath: project.path,
+        let request = WorktreeCreationRequest(
+            name: trimmedName,
             path: worktreeDirectory,
             branch: trimmedBranch,
             createBranch: createBranch,
             baseBranch: resolvedBase
         )
-
-        let worktree = Worktree(
-            name: trimmedName,
-            path: worktreeDirectory,
-            branch: trimmedBranch,
-            ownsBranch: createBranch,
-            isPrimary: false
-        )
-        worktreeStore.add(worktree, to: project.id)
+        let worktree = try await worktreeStore.createWorktree(project: project, request: request)
         return worktree.toDTO()
     }
 

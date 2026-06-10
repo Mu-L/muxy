@@ -77,6 +77,32 @@ struct ProjectPickerSession {
         self.pathService = pathService ?? ProjectPickerPathService(homeDirectory: homeDirectory)
     }
 
+    init(
+        projectPaths: [String],
+        context: WorkspaceContext
+    ) {
+        guard case let .ssh(destination) = context else {
+            self.init(
+                defaultDisplayPath: ProjectPickerDefaultLocation.state.displayPath,
+                projectPaths: projectPaths
+            )
+            return
+        }
+        let remoteHome = destination.remoteRoot
+        let displayPath = remoteHome.hasSuffix("/") ? remoteHome : remoteHome + "/"
+        let service = ProjectPickerPathService(
+            homeDirectory: remoteHome,
+            fileSystem: RemoteProjectPickerFileSystem(destination: destination),
+            isRemote: true
+        )
+        self.init(
+            defaultDisplayPath: displayPath,
+            homeDirectory: remoteHome,
+            projectPaths: projectPaths,
+            pathService: service
+        )
+    }
+
     mutating func setProjectPaths(_ projectPaths: [String]) {
         self.projectPaths = projectPaths
     }
