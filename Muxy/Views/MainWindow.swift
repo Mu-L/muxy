@@ -31,7 +31,9 @@ struct MainWindow: View {
     @Environment(WorktreeStore.self) private var worktreeStore
     @Environment(ProjectGroupStore.self) private var projectGroupStore
     @Environment(RemoteDeviceStore.self) private var remoteDeviceStore
+    @Environment(BrowserProfileStore.self) private var browserProfileStore
     @Environment(GhosttyService.self) private var ghostty
+    @AppStorage(BrowserPreferences.enabledKey) private var browserEnabled = true
     @State private var dragCoordinator = TabDragCoordinator()
     private enum CloseConfirmationKind {
         case lastTab
@@ -386,7 +388,8 @@ struct MainWindow: View {
                                 appState: appState,
                                 projectStore: projectStore,
                                 worktreeStore: worktreeStore,
-                                projectGroupStore: projectGroupStore
+                                projectGroupStore: projectGroupStore,
+                                browserProfileStore: browserProfileStore
                             )
                         )
                     }
@@ -436,6 +439,14 @@ struct MainWindow: View {
                 onCreateTab: {
                     appState.dispatch(.createTab(projectID: project.id, areaID: area.id))
                 },
+                onOpenBrowser: browserEnabled ? {
+                    appState.dispatch(.createBrowserTab(
+                        projectID: project.id,
+                        areaID: area.id,
+                        url: BrowserURL.resolve(from: BrowserURL.defaultURLString),
+                        profileID: browserProfileStore.defaultProfileID
+                    ))
+                } : nil,
                 onCloseTab: { tabID in
                     appState.closeTab(tabID, areaID: area.id, projectID: project.id)
                 },

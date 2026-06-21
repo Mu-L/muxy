@@ -27,6 +27,7 @@ struct PaneTabStrip: View {
     var shortcutIndexOffset: Int = 0
     let onSelectTab: (UUID) -> Void
     let onCreateTab: () -> Void
+    var onOpenBrowser: (() -> Void)?
     let onCloseTab: (UUID) -> Void
     let onCloseOtherTabs: (UUID) -> Void
     let onCloseTabsToLeft: (UUID) -> Void
@@ -107,6 +108,10 @@ struct PaneTabStrip: View {
                     .help(shortcutTooltip("Split Down", for: .splitDown))
                 IconButton(symbol: "plus", accessibilityLabel: "New Tab") { onCreateTab() }
                     .help(shortcutTooltip("New Tab", for: .newTab))
+                if let onOpenBrowser {
+                    IconButton(symbol: "globe", accessibilityLabel: "Open Browser Tab", action: onOpenBrowser)
+                        .help("Open Browser Tab")
+                }
             }
             .padding(.leading, UIMetrics.spacing4)
             .padding(.trailing, UIMetrics.spacing2)
@@ -615,6 +620,7 @@ private struct TabCell: View {
         switch tab.kind {
         case .terminal: label += ", Terminal"
         case .extensionWebView: label += ", Extension"
+        case .browser: label += ", Browser"
         }
         if tab.isPinned { label += ", Pinned" }
         if tab.isOffline, !active { label += ", Idle" }
@@ -653,6 +659,9 @@ private struct TabCell: View {
                     .font(.system(size: UIMetrics.fontBody, weight: .semibold))
             case .extensionWebView:
                 extensionIconView
+            case .browser:
+                Image(systemName: "globe")
+                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
             }
         }
     }
