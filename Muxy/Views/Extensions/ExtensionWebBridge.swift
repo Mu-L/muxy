@@ -112,6 +112,11 @@ enum ExtensionWebBridge {
                 if (view) view.__applyState(state);
             };
 
+            window.__muxyBrowserClosed = (viewID) => {
+                const view = browserViews.get(String(viewID));
+                if (view) view.__close();
+            };
+
             let beforeCloseHandler = null;
             window.__muxyResolveBeforeClose = (callID, prevent) => {
                 send('lifecycle.resolveBeforeClose', { callID: String(callID), prevent: !!prevent }).catch(() => {});
@@ -350,12 +355,14 @@ enum ExtensionWebBridge {
                             get isLoading() { return state.isLoading; },
                             get progress() { return state.progress; },
                             __applyState(next) {
-                                state = next || state;
+                                if (!next) return;
+                                const prev = state;
+                                state = next;
                                 emit('state', state);
-                                emit('did-navigate', { url: state.url });
-                                emit('title-changed', { title: state.title });
-                                emit('loading-changed', { isLoading: state.isLoading });
-                                emit('progress', { progress: state.progress });
+                                if (state.url !== prev.url) emit('did-navigate', { url: state.url });
+                                if (state.title !== prev.title) emit('title-changed', { title: state.title });
+                                if (state.isLoading !== prev.isLoading) emit('loading-changed', { isLoading: state.isLoading });
+                                if (state.progress !== prev.progress) emit('progress', { progress: state.progress });
                             },
                             loadURL(url) { return send('browser.navigate', { viewID, url: String(url) }); },
                             goTo(url) { return send('browser.navigate', { viewID, url: String(url) }); },
@@ -375,13 +382,21 @@ enum ExtensionWebBridge {
                                 return () => { const s = listeners.get(name); if (s) s.delete(callback); };
                             },
                             sync,
-                            destroy() {
-                                if (destroyed) return Promise.resolve();
+                            __teardown() {
+                                if (destroyed) return false;
                                 destroyed = true;
                                 resizeObserver.disconnect();
                                 window.removeEventListener('scroll', schedule, true);
                                 window.removeEventListener('resize', schedule, true);
                                 browserViews.delete(viewID);
+                                return true;
+                            },
+                            __close() {
+                                if (!handle.__teardown()) return;
+                                emit('destroyed', { reason: 'disabled' });
+                            },
+                            destroy() {
+                                if (!handle.__teardown()) return Promise.resolve();
                                 return send('browser.detach', { viewID }).catch(() => {});
                             },
                         };

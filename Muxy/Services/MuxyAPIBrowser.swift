@@ -31,7 +31,7 @@ extension MuxyAPI {
                     url: url
                 )
             )
-            return stateDict(state)
+            return state.jsonDictionary
         }
 
         static func updateRect(surfaceKey: LifecycleSurfaceKey?, args: [String: Any]) throws {
@@ -164,17 +164,6 @@ extension MuxyAPI {
                     expires: expires
                 )
             }
-        }
-
-        private static func stateDict(_ state: ExtensionBrowserState) -> [String: Any] {
-            [
-                "url": state.url ?? NSNull(),
-                "title": state.title ?? NSNull(),
-                "canGoBack": state.canGoBack,
-                "canGoForward": state.canGoForward,
-                "isLoading": state.isLoading,
-                "progress": state.progress,
-            ]
         }
 
         private static func gateEmbedConsent(extensionID: String) async throws {

@@ -17,6 +17,17 @@ struct ExtensionBrowserState {
         isLoading: false,
         progress: 0
     )
+
+    var jsonDictionary: [String: Any] {
+        [
+            "url": url ?? NSNull(),
+            "title": title ?? NSNull(),
+            "canGoBack": canGoBack,
+            "canGoForward": canGoForward,
+            "isLoading": isLoading,
+            "progress": progress,
+        ]
+    }
 }
 
 @MainActor

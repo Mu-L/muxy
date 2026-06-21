@@ -64,10 +64,13 @@ browser.on('title-changed', ({ title }) => {});
 browser.on('loading-changed', ({ isLoading }) => {});
 browser.on('progress', ({ progress }) => {});
 browser.on('state', (state) => {}); // the whole state object on any change
+browser.on('destroyed', ({ reason }) => {}); // the viewport was torn down (e.g. browser disabled)
 
 // teardown — always call when removing the element
 await browser.destroy();
 ```
+
+`did-navigate`, `title-changed`, `loading-changed`, and `progress` fire only when that field actually changes; `state` fires on every update.
 
 Geometry tracks automatically via `ResizeObserver` and scroll. If you move the element in a way those don't catch, call `browser.sync()`.
 
@@ -106,7 +109,7 @@ await muxy.browser.profiles.setCookies('work', [
 
 The **first time an extension embeds a browser**, the user is prompted once — "Allow `<ext>` to embed a web browser?". After **Allow & remember**, the extension embeds and navigates freely with no further prompts. This is a real browser: the user drives navigation, so there is **no per-host prompt and no private/loopback blocking** — `localhost`, LAN hosts, and any public site all load like they would in Safari or Chrome.
 
-The built-in browser can be disabled globally; when off, `init` rejects and any open viewports are torn down.
+The built-in browser can be disabled globally; when off, `init` rejects and any open viewports are torn down — surviving handles fire a `destroyed` event so your chrome can react.
 
 ## Notes
 

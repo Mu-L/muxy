@@ -72,10 +72,14 @@ struct ExtensionWebView: NSViewRepresentable {
         ExtensionSurfaceBridgeRegistry.shared.register(bridge, for: surfaceKey)
         ExtensionBrowserOverlayRegistry.shared.registerSurface(
             surfaceKey,
-            container: container
-        ) { [weak bridge] viewID, state in
-            bridge?.deliverBrowserState(viewID: viewID, state: state)
-        }
+            container: container,
+            stateSink: { [weak bridge] viewID, state in
+                bridge?.deliverBrowserState(viewID: viewID, state: state)
+            },
+            closedSink: { [weak bridge] viewID in
+                bridge?.deliverBrowserClosed(viewID: viewID)
+            }
+        )
         context.coordinator.surfaceKey = surfaceKey
         context.coordinator.webViewForDismantle = webView
         context.coordinator.observeThemeChanges(for: webView)

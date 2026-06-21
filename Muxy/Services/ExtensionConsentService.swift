@@ -237,7 +237,10 @@ enum ExtensionConsentRequestBuilder {
         case let (.httpFetch, .http(hostname, method, url)):
             return ("fetch from \(hostname)", ["host: \(hostname)", "method: \(method)", "url: \(url)"])
         case (.browserEmbed, .browser):
-            return ("embed a web browser", ["This extension can load any website in a browser view."])
+            return ("embed a web browser", [
+                "Loads any website in a browser view, can run code inside pages, and can use logins it injects.",
+                "Grant only to extensions you fully trust.",
+            ])
         case let (.tabsRunCommand, .tabCommand(command)):
             return (command, ["command: \(command)"])
         case let (.projectsDelete, .project(name, path)):

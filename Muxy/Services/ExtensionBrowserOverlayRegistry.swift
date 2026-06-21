@@ -17,11 +17,17 @@ final class ExtensionBrowserOverlayRegistry {
     private final class Surface {
         weak var container: NSView?
         let stateSink: (String, ExtensionBrowserState) -> Void
+        let closedSink: (String) -> Void
         var overlays: [String: ExtensionBrowserOverlay] = [:]
 
-        init(container: NSView, stateSink: @escaping (String, ExtensionBrowserState) -> Void) {
+        init(
+            container: NSView,
+            stateSink: @escaping (String, ExtensionBrowserState) -> Void,
+            closedSink: @escaping (String) -> Void
+        ) {
             self.container = container
             self.stateSink = stateSink
+            self.closedSink = closedSink
         }
     }
 
@@ -30,9 +36,10 @@ final class ExtensionBrowserOverlayRegistry {
     func registerSurface(
         _ key: LifecycleSurfaceKey,
         container: NSView,
-        stateSink: @escaping (String, ExtensionBrowserState) -> Void
+        stateSink: @escaping (String, ExtensionBrowserState) -> Void,
+        closedSink: @escaping (String) -> Void
     ) {
-        surfaces[key] = Surface(container: container, stateSink: stateSink)
+        surfaces[key] = Surface(container: container, stateSink: stateSink, closedSink: closedSink)
     }
 
     func unregisterSurface(_ key: LifecycleSurfaceKey) {
@@ -114,8 +121,9 @@ final class ExtensionBrowserOverlayRegistry {
 
     func disableAll() {
         for surface in surfaces.values {
-            for overlay in surface.overlays.values {
+            for (viewID, overlay) in surface.overlays {
                 overlay.teardown()
+                surface.closedSink(viewID)
             }
             surface.overlays.removeAll()
         }

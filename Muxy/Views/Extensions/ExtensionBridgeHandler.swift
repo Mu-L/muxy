@@ -289,20 +289,22 @@ final class ExtensionBridgeHandler: NSObject, WKScriptMessageHandlerWithReply, B
 
     func deliverBrowserState(viewID: String, state: ExtensionBrowserState) {
         guard let webView else { return }
-        let payload: [String: Any] = [
-            "url": state.url ?? NSNull(),
-            "title": state.title ?? NSNull(),
-            "canGoBack": state.canGoBack,
-            "canGoForward": state.canGoForward,
-            "isLoading": state.isLoading,
-            "progress": state.progress,
-        ]
-        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+        guard let data = try? JSONSerialization.data(withJSONObject: state.jsonDictionary),
               let literal = String(data: data, encoding: .utf8)
         else { return }
         let script = """
         if (typeof window.__muxyBrowserState === 'function') {
             window.__muxyBrowserState(\(jsLiteral(viewID)), \(literal));
+        }
+        """
+        webView.evaluateJavaScript(script, completionHandler: nil)
+    }
+
+    func deliverBrowserClosed(viewID: String) {
+        guard let webView else { return }
+        let script = """
+        if (typeof window.__muxyBrowserClosed === 'function') {
+            window.__muxyBrowserClosed(\(jsLiteral(viewID)));
         }
         """
         webView.evaluateJavaScript(script, completionHandler: nil)
