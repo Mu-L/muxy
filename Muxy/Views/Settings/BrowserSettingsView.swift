@@ -4,11 +4,16 @@ struct BrowserSettingsView: View {
     @Environment(BrowserProfileStore.self) private var profileStore
     @AppStorage(BrowserPreferences.enabledKey) private var browserEnabled = true
     @AppStorage(BrowserPreferences.openLinksInBuiltInBrowserKey) private var openLinksInBuiltInBrowser = false
+    @AppStorage(BrowserPreferences.searchEngineKey) private var searchEngineRawValue = BrowserPreferences
+        .defaultSearchEngine.rawValue
+    @AppStorage(BrowserPreferences.homePageURLKey) private var homePageURLString = BrowserHomePage.blankURLString
 
     @State private var editorMode: BrowserProfileEditorMode?
     @State private var profilePendingDelete: BrowserProfile?
     @State private var profilePendingClear: BrowserProfile?
     @State private var importTarget: BrowserProfile?
+    @State private var usesCustomHomePage = false
+    @State private var customHomePageDraft = ""
 
     private static let profilesFooter = """
     Each profile keeps its own cookies, cache, and logins. Pick a profile per tab from the browser \
@@ -18,6 +23,10 @@ struct BrowserSettingsView: View {
     private static let disabledFooter = """
     The built-in browser is off. Browser tabs, the toolbar globe, and terminal-link opening are \
     disabled, and terminal links open in your system browser.
+    """
+
+    private static let homePageFooter = """
+    New browser tabs open to a blank page. Turn on the toggle to open them to a website instead.
     """
 
     var body: some View {
@@ -45,6 +54,29 @@ struct BrowserSettingsView: View {
             }
 
             if browserEnabled {
+                SettingsSection("Browsing", footer: Self.homePageFooter) {
+                    SettingsRow("Search Engine") {
+                        Picker("", selection: $searchEngineRawValue) {
+                            ForEach(BrowserSearchEngine.allCases) { engine in
+                                Text(engine.displayName).tag(engine.rawValue)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: SettingsMetrics.controlWidth, alignment: .trailing)
+                    }
+                    SettingsToggleRow(label: "Open new tabs to a website", isOn: customHomePageEnabledBinding)
+                    if usesCustomHomePage {
+                        SettingsRow("Home Page") {
+                            TextField("https://example.com", text: $customHomePageDraft)
+                                .settingsTextInput(width: SettingsMetrics.controlWidth)
+                                .onSubmit { commitCustomHomePage() }
+                                .onChange(of: customHomePageDraft) { _, _ in commitCustomHomePage() }
+                        }
+                    }
+                }
+            }
+
+            if browserEnabled {
                 SettingsSection("Profiles", footer: Self.profilesFooter, showsDivider: false) {
                     ForEach(profileStore.profiles) { profile in
                         BrowserProfileRow(
@@ -59,6 +91,7 @@ struct BrowserSettingsView: View {
                 }
             }
         }
+        .onAppear { syncHomePageDraft() }
         .sheet(item: $editorMode) { mode in
             BrowserProfileEditorSheet(
                 mode: mode,
@@ -133,6 +166,26 @@ struct BrowserSettingsView: View {
             get: { profileStore.defaultProfileID },
             set: { profileStore.setDefault(id: $0) }
         )
+    }
+
+    private var customHomePageEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { usesCustomHomePage },
+            set: { enabled in
+                usesCustomHomePage = enabled
+                homePageURLString = enabled ? BrowserHomePage.normalized(customHomePageDraft) : BrowserHomePage
+                    .blankURLString
+            }
+        )
+    }
+
+    private func commitCustomHomePage() {
+        homePageURLString = BrowserHomePage.normalized(customHomePageDraft)
+    }
+
+    private func syncHomePageDraft() {
+        usesCustomHomePage = !BrowserHomePage.isBlankMode(homePageURLString)
+        customHomePageDraft = usesCustomHomePage ? homePageURLString : ""
     }
 
     private var deleteAlertBinding: Binding<Bool> {

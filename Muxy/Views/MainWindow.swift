@@ -443,7 +443,7 @@ struct MainWindow: View {
                     appState.dispatch(.createBrowserTab(
                         projectID: project.id,
                         areaID: area.id,
-                        url: BrowserURL.resolve(from: BrowserURL.defaultURLString),
+                        url: BrowserURL.homeURL,
                         profileID: browserProfileStore.defaultProfileID
                     ))
                 } : nil,

@@ -1,8 +1,11 @@
 import Foundation
 
 enum BrowserURL {
-    static let defaultURLString = "https://www.google.com"
     static let allowedSchemes: Set<String> = ["http", "https", "about"]
+
+    static var homeURL: URL? {
+        BrowserPreferences.homePageURL ?? BrowserHomePage.blankURL
+    }
 
     static func isAllowed(_ url: URL) -> Bool {
         guard let scheme = url.scheme?.lowercased() else { return false }
@@ -25,9 +28,7 @@ enum BrowserURL {
     }
 
     static func searchURL(for query: String) -> URL? {
-        var components = URLComponents(string: "https://www.google.com/search")
-        components?.queryItems = [URLQueryItem(name: "q", value: query)]
-        return components?.url
+        BrowserPreferences.searchEngine.searchURL(for: query)
     }
 
     private static func looksLikeHost(_ value: String) -> Bool {

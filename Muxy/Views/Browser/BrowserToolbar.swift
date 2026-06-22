@@ -47,16 +47,17 @@ struct BrowserToolbar: View {
                 .fill(MuxyTheme.border)
                 .frame(height: 1)
         }
-        .onChange(of: state.url) { _, newValue in
+        .onChange(of: state.url) { _, _ in
             guard !addressFieldFocused else { return }
-            addressText = newValue?.absoluteString ?? ""
+            addressText = displayURLText
         }
         .onChange(of: addressFieldFocused) { _, focused in
-            guard !focused else { return }
-            addressText = state.url?.absoluteString ?? ""
+            if !focused {
+                addressText = displayURLText
+            }
         }
         .onAppear {
-            addressText = state.url?.absoluteString ?? ""
+            addressText = displayURLText
         }
     }
 
@@ -143,23 +144,32 @@ struct BrowserToolbar: View {
     }
 
     private var addressField: some View {
-        TextField("Search or enter address", text: $addressText)
-            .textFieldStyle(.plain)
-            .font(.system(size: UIMetrics.fontBody))
-            .foregroundStyle(MuxyTheme.fg)
-            .focused($addressFieldFocused)
-            .onSubmit {
-                state.load(from: addressText)
-                addressFieldFocused = false
-            }
-            .padding(.horizontal, UIMetrics.spacing4)
-            .frame(height: UIMetrics.controlSmall)
-            .background(MuxyTheme.bg)
-            .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
-            .overlay(
-                RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
-                    .strokeBorder(addressFieldFocused ? MuxyTheme.accent : MuxyTheme.border, lineWidth: 1)
-            )
+        BrowserAddressField(
+            text: $addressText,
+            focused: Binding(
+                get: { addressFieldFocused },
+                set: { addressFieldFocused = $0 }
+            ),
+            placeholder: "Search or enter address"
+        ) {
+            state.load(from: addressText)
+            addressFieldFocused = false
+        }
+        .padding(.horizontal, UIMetrics.spacing4)
+        .frame(height: UIMetrics.controlSmall)
+        .background(MuxyTheme.bg)
+        .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
+        .overlay(
+            RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
+                .strokeBorder(addressFieldFocused ? MuxyTheme.accent : MuxyTheme.border, lineWidth: 1)
+        )
+    }
+
+    private var displayURLText: String {
+        guard let absoluteString = state.url?.absoluteString,
+              !BrowserHomePage.isBlankMode(absoluteString)
+        else { return "" }
+        return absoluteString
     }
 
     @ViewBuilder

@@ -1204,7 +1204,7 @@ enum MuxyAPI {
         ) -> Result<UUID, APIError> {
             guard BrowserPreferences.isEnabled else { return .failure(.browserDisabled) }
             guard let projectID = appState.activeProjectID else { return .failure(.noActiveProject) }
-            let resolvedURL = url.flatMap(BrowserURL.resolve(from:)) ?? BrowserURL.resolve(from: BrowserURL.defaultURLString)
+            let resolvedURL = url.flatMap(BrowserURL.resolve(from:)) ?? BrowserURL.homeURL
             let resolvedProfileID = profileID ?? BrowserPreferences.defaultProfileID
 
             if split, let areaID = appState.focusedAreaID(for: projectID) {

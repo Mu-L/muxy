@@ -3,8 +3,12 @@ import Testing
 
 @testable import Muxy
 
-@Suite("BrowserURL")
+@Suite("BrowserURL", .serialized)
 struct BrowserURLTests {
+    init() {
+        BrowserPreferences.searchEngine = .google
+    }
+
     @Test("full https url is preserved")
     func httpsURL() {
         let url = BrowserURL.resolve(from: "https://muxy.app/docs")
@@ -59,6 +63,13 @@ struct BrowserURLTests {
         #expect(url?.host == "www.google.com")
         #expect(url.map(BrowserURL.isAllowed) == true)
     }
+
+    @Test("configured engine drives the address-bar search fallback")
+    func configuredEngineDrivesFallback() {
+        defer { BrowserPreferences.searchEngine = .google }
+        BrowserPreferences.searchEngine = .duckDuckGo
+        #expect(BrowserURL.resolve(from: "swift concurrency")?.host == "duckduckgo.com")
+    }
 }
 
 @Suite("BrowserPreferences", .serialized)
@@ -79,6 +90,83 @@ struct BrowserPreferencesTests {
         defer { restore(original) }
         BrowserPreferences.openLinksInBuiltInBrowser = true
         #expect(BrowserPreferences.openLinksInBuiltInBrowser == true)
+    }
+
+    private func restore(_ original: Any?) {
+        if let original {
+            UserDefaults.standard.set(original, forKey: key)
+        } else {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+    }
+}
+
+@Suite("BrowserSearchEngine", .serialized)
+struct BrowserSearchEngineTests {
+    private let key = BrowserPreferences.searchEngineKey
+
+    @Test("each engine builds a query url for its endpoint", arguments: BrowserSearchEngine.allCases)
+    func searchURLPerEngine(engine: BrowserSearchEngine) {
+        let url = engine.searchURL(for: "swift testing")
+        #expect(url?.absoluteString.hasPrefix(engine.endpoint) == true)
+        #expect(url?.query?.contains("swift%20testing") == true || url?.query?.contains("swift+testing") == true)
+    }
+
+    @Test("default search engine is google")
+    func defaultIsGoogle() {
+        let original = UserDefaults.standard.object(forKey: key)
+        defer { restore(original) }
+        UserDefaults.standard.removeObject(forKey: key)
+        #expect(BrowserPreferences.searchEngine == .google)
+    }
+
+    private func restore(_ original: Any?) {
+        if let original {
+            UserDefaults.standard.set(original, forKey: key)
+        } else {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+    }
+}
+
+@Suite("BrowserHomePage", .serialized)
+struct BrowserHomePageTests {
+    private let key = BrowserPreferences.homePageURLKey
+
+    @Test("default home page is blank")
+    func defaultIsBlank() {
+        let original = UserDefaults.standard.object(forKey: key)
+        defer { restore(original) }
+        UserDefaults.standard.removeObject(forKey: key)
+        #expect(BrowserPreferences.homePageURLString == BrowserHomePage.blankURLString)
+        #expect(BrowserURL.homeURL?.absoluteString == BrowserHomePage.blankURLString)
+    }
+
+    @Test("custom website becomes the home url")
+    func customWebsite() {
+        let original = UserDefaults.standard.object(forKey: key)
+        defer { restore(original) }
+        BrowserPreferences.homePageURLString = "example.com"
+        #expect(BrowserURL.homeURL?.absoluteString == "https://example.com")
+    }
+
+    @Test("empty custom value falls back to blank")
+    func emptyCustomFallsBack() {
+        #expect(BrowserHomePage.resolvedURL(from: "   ")?.absoluteString == BrowserHomePage.blankURLString)
+    }
+
+    @Test("blank and empty values count as blank mode")
+    func blankModeDetection() {
+        #expect(BrowserHomePage.isBlankMode(BrowserHomePage.blankURLString))
+        #expect(BrowserHomePage.isBlankMode(""))
+        #expect(BrowserHomePage.isBlankMode("   "))
+        #expect(!BrowserHomePage.isBlankMode("example.com"))
+    }
+
+    @Test("empty values normalize to blank")
+    func normalization() {
+        #expect(BrowserHomePage.normalized("  ") == BrowserHomePage.blankURLString)
+        #expect(BrowserHomePage.normalized("  example.com ") == "example.com")
     }
 
     private func restore(_ original: Any?) {

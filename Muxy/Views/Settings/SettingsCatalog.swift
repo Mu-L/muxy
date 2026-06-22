@@ -275,6 +275,24 @@ enum SettingsCatalog {
         ),
 
         SettingsCatalogItem(
+            key: BrowserPreferences.searchEngineKey,
+            title: "Search Engine",
+            description: "Chooses the search engine used when you type a query in the browser address bar.",
+            category: .browser,
+            section: "Browsing",
+            defaultValue: BrowserPreferences.defaultSearchEngine.rawValue,
+            aliases: ["google", "duckduckgo", "bing", "brave", "startpage", "search"]
+        ),
+        SettingsCatalogItem(
+            key: BrowserPreferences.homePageURLKey,
+            title: "Home Page",
+            description: "Sets the page new browser tabs open to. Blank by default, or a website you choose.",
+            category: .browser,
+            section: "Browsing",
+            defaultValue: BrowserHomePage.blankURLString,
+            aliases: ["homepage", "new tab", "start page", "blank"]
+        ),
+        SettingsCatalogItem(
             key: "muxy.ui.scale",
             title: "Interface Size",
             description: "Controls the scale of the app interface.",

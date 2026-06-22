@@ -47,7 +47,7 @@ struct TabAreaView: View {
                         appState.dispatch(.createBrowserTab(
                             projectID: projectID,
                             areaID: area.id,
-                            url: BrowserURL.resolve(from: BrowserURL.defaultURLString),
+                            url: BrowserURL.homeURL,
                             profileID: BrowserPreferences.defaultProfileID
                         ))
                     } : nil,
