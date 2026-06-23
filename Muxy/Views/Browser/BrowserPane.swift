@@ -6,8 +6,9 @@ struct BrowserPane: View {
     let onFocus: () -> Void
 
     @Environment(AppState.self) private var appState
+    @Environment(BrowserHistoryStore.self) private var historyStore
     @Environment(\.overlayActive) private var overlayActive
-    @FocusState private var addressFieldFocused: Bool
+    @State private var addressFieldFocused = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -16,7 +17,8 @@ struct BrowserPane: View {
                 state: state,
                 focused: focused && !addressFieldFocused,
                 overlayActive: overlayActive,
-                appState: appState
+                appState: appState,
+                historyStore: historyStore
             )
             .id(state.profileID)
             .contentShape(Rectangle())

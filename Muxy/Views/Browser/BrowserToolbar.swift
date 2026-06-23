@@ -3,11 +3,13 @@ import SwiftUI
 
 struct BrowserToolbar: View {
     let state: BrowserTabState
-    @FocusState.Binding var addressFieldFocused: Bool
+    @Binding var addressFieldFocused: Bool
 
     @Environment(BrowserProfileStore.self) private var profileStore
+    @Environment(BrowserHistoryStore.self) private var historyStore
     @State private var addressText: String = ""
     @State private var installedBrowsers: [InstalledBrowser] = []
+    @State private var suggestionModel = BrowserSuggestionModel()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -53,13 +55,19 @@ struct BrowserToolbar: View {
             addressText = displayURLText
         }
         .onChange(of: addressFieldFocused) { _, focused in
-            if !focused {
-                addressText = displayURLText
-            }
+            guard !focused else { return }
+            addressText = displayURLText
         }
         .onAppear {
             addressText = displayURLText
         }
+    }
+
+    private func submitAddress(_ selected: BrowserHistoryEntry?) {
+        let target = selected?.url ?? addressText
+        if let selected { addressText = selected.url }
+        state.load(from: target)
+        addressFieldFocused = false
     }
 
     private var openInBrowserMenu: some View {
@@ -145,34 +153,21 @@ struct BrowserToolbar: View {
     }
 
     private var addressField: some View {
-        TextField("Search or enter address", text: $addressText)
-            .textFieldStyle(.plain)
-            .font(.system(size: UIMetrics.fontBody))
-            .foregroundStyle(MuxyTheme.fg)
-            .focused($addressFieldFocused)
-            .onSubmit {
-                state.load(from: addressText)
-                addressFieldFocused = false
-            }
-            .onChange(of: addressFieldFocused) { _, focused in
-                guard focused else { return }
-                selectAllAddressText()
-            }
-            .padding(.horizontal, UIMetrics.spacing4)
-            .frame(height: UIMetrics.controlSmall)
-            .background(MuxyTheme.bg)
-            .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
-            .overlay(
-                RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
-                    .strokeBorder(addressFieldFocused ? MuxyTheme.accent : MuxyTheme.border, lineWidth: 1)
-            )
-    }
-
-    private func selectAllAddressText() {
-        DispatchQueue.main.async {
-            guard let editor = (NSApp.keyWindow?.firstResponder as? NSTextView) else { return }
-            editor.selectAll(nil)
-        }
+        BrowserAddressField(
+            text: $addressText,
+            isFocused: $addressFieldFocused,
+            model: suggestionModel,
+            suggestionsProvider: { historyStore.suggestions(for: $0, profileID: state.profileID) },
+            onSubmit: submitAddress
+        )
+        .padding(.horizontal, UIMetrics.spacing4)
+        .frame(height: UIMetrics.controlSmall)
+        .background(MuxyTheme.bg)
+        .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
+        .overlay(
+            RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
+                .strokeBorder(addressFieldFocused ? MuxyTheme.accent : MuxyTheme.border, lineWidth: 1)
+        )
     }
 
     private var displayURLText: String {

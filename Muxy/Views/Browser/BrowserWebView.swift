@@ -6,9 +6,10 @@ struct BrowserWebView: NSViewRepresentable {
     let focused: Bool
     let overlayActive: Bool
     let appState: AppState
+    let historyStore: BrowserHistoryStore
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(state: state, appState: appState)
+        Coordinator(state: state, appState: appState, historyStore: historyStore)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -46,15 +47,17 @@ struct BrowserWebView: NSViewRepresentable {
     final class Coordinator: NSObject {
         private let state: BrowserTabState
         private let appState: AppState
+        private let historyStore: BrowserHistoryStore
         private var observations: [NSKeyValueObservation] = []
         private var focused = false
         private var overlayActive = false
 
         var tabID: UUID { state.id }
 
-        init(state: BrowserTabState, appState: AppState) {
+        init(state: BrowserTabState, appState: AppState, historyStore: BrowserHistoryStore) {
             self.state = state
             self.appState = appState
+            self.historyStore = historyStore
         }
 
         func attach(to webView: WKWebView) {
@@ -72,12 +75,24 @@ struct BrowserWebView: NSViewRepresentable {
                     MainActor.assumeIsolated { self?.state.canGoForward = view.canGoForward }
                 },
                 webView.observe(\.title, options: [.new]) { [weak self] view, _ in
-                    MainActor.assumeIsolated { self?.state.pageTitle = view.title }
+                    MainActor.assumeIsolated { self?.handleTitleChange(view.title, url: view.url) }
                 },
                 webView.observe(\.url, options: [.new]) { [weak self] view, _ in
-                    MainActor.assumeIsolated { self?.state.url = view.url }
+                    MainActor.assumeIsolated { self?.handleURLChange(view.url, title: view.title) }
                 },
             ]
+        }
+
+        private func handleURLChange(_ url: URL?, title: String?) {
+            state.url = url
+            guard let url else { return }
+            historyStore.record(url: url, title: title, profileID: state.profileID)
+        }
+
+        private func handleTitleChange(_ title: String?, url: URL?) {
+            state.pageTitle = title
+            guard let url else { return }
+            historyStore.updateTitle(title, for: url, profileID: state.profileID)
         }
 
         func detach(from webView: WKWebView) {

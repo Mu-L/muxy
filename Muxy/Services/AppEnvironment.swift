@@ -18,6 +18,7 @@ struct AppEnvironment {
     let projectGroupPersistence: any ProjectGroupPersisting
     let remoteDevicePersistence: any RemoteDevicePersisting
     let browserProfilePersistence: any BrowserProfilePersisting
+    let browserHistoryPersistence: any BrowserHistoryPersisting
 
     static let live = Self(
         selectionStore: UserDefaultsActiveProjectSelectionStore(),
@@ -27,6 +28,7 @@ struct AppEnvironment {
         worktreePersistence: FileWorktreePersistence(),
         projectGroupPersistence: FileProjectGroupPersistence(),
         remoteDevicePersistence: FileRemoteDevicePersistence(),
-        browserProfilePersistence: FileBrowserProfilePersistence()
+        browserProfilePersistence: FileBrowserProfilePersistence(),
+        browserHistoryPersistence: FileBrowserHistoryPersistence()
     )
 }
