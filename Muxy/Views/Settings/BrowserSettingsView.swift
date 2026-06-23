@@ -2,6 +2,7 @@ import SwiftUI
 
 struct BrowserSettingsView: View {
     @Environment(BrowserProfileStore.self) private var profileStore
+    @Environment(BrowserHistoryStore.self) private var historyStore
     @AppStorage(BrowserPreferences.enabledKey) private var browserEnabled = true
     @AppStorage(BrowserPreferences.openLinksInBuiltInBrowserKey) private var openLinksInBuiltInBrowser = false
     @AppStorage(BrowserPreferences.searchEngineKey) private var searchEngineRawValue = BrowserPreferences
@@ -114,6 +115,7 @@ struct BrowserSettingsView: View {
             presenting: profilePendingDelete
         ) { profile in
             Button("Delete", role: .destructive) {
+                historyStore.clear(profileID: profile.id)
                 profileStore.remove(id: profile.id)
                 profilePendingDelete = nil
             }
@@ -131,6 +133,7 @@ struct BrowserSettingsView: View {
                 let id = profile.id
                 let name = profile.name
                 profilePendingClear = nil
+                historyStore.clear(profileID: id)
                 Task {
                     await profileStore.clearData(for: id)
                     ToastState.shared.show("Cleared browsing data for “\(name)”")

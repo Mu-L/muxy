@@ -87,15 +87,18 @@ struct MuxyApp: App {
                     DesktopNotificationService.shared.start(appState: appState)
                     MemoryDiagnostics.shared.configure(appState: appState)
                     TerminalProgressStore.shared.appState = appState
-                    appDelegate.onTerminate = { [appState] in
+                    appDelegate.onTerminate = { [appState, browserHistoryStore] in
                         appState.saveWorkspaces()
+                        browserHistoryStore.saveImmediately()
                     }
-                    appDelegate.settingsContent = { [projectGroupStore, remoteDeviceStore, browserProfileStore] in
+                    appDelegate.settingsContent = {
+                        [projectGroupStore, remoteDeviceStore, browserProfileStore, browserHistoryStore] in
                         AnyView(
                             SettingsView()
                                 .environment(projectGroupStore)
                                 .environment(remoteDeviceStore)
                                 .environment(browserProfileStore)
+                                .environment(browserHistoryStore)
                                 .environment(SSHConnectionService.shared)
                         )
                     }

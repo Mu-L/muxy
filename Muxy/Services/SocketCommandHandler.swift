@@ -210,7 +210,7 @@ enum SocketCommandHandler {
             )
         case "browser.open":
             let split = parts.contains("--split")
-            let urlParts = parts.dropFirst().filter { $0 != "--split" }
+            let urlParts = trimTrailingEmptyFields(parts.dropFirst().filter { $0 != "--split" })
             let url = urlParts.isEmpty ? nil : urlParts.joined(separator: "|")
             return serialize(MuxyAPI.Browser.open(url: url, split: split, appState: appState)) { tabID in
                 tabID.uuidString
@@ -646,6 +646,14 @@ enum SocketCommandHandler {
             return (fromPane, parts.dropFirst(1).dropLast().joined(separator: "|"))
         }
         return (nil, parts.dropFirst(1).joined(separator: "|"))
+    }
+
+    private static func trimTrailingEmptyFields(_ fields: [String]) -> [String] {
+        var trimmed = fields
+        while trimmed.last?.isEmpty == true {
+            trimmed.removeLast()
+        }
+        return trimmed
     }
 
     static func requiredPermissions(command: String, parts: [String]) -> [ExtensionPermission] {

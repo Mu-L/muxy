@@ -114,4 +114,27 @@ struct BrowserHistoryStoreTests {
         #expect(store.entries.count == 1)
         #expect(store.entries.first?.profileID == other)
     }
+
+    @Test("saveImmediately persists without waiting for debounce")
+    func saveImmediatelyPersistsCurrentEntries() {
+        let persistence = RecordingBrowserHistoryPersistence()
+        let store = BrowserHistoryStore(persistence: persistence)
+        store.record(url: url("https://a.com"), title: nil, profileID: profile)
+
+        store.saveImmediately()
+
+        #expect(persistence.savedEntries.map(\.url) == ["https://a.com"])
+    }
+}
+
+private final class RecordingBrowserHistoryPersistence: BrowserHistoryPersisting {
+    private(set) var savedEntries: [BrowserHistoryEntry] = []
+
+    func loadEntries() throws -> [BrowserHistoryEntry] {
+        []
+    }
+
+    func saveEntries(_ entries: [BrowserHistoryEntry]) throws {
+        savedEntries = entries
+    }
 }

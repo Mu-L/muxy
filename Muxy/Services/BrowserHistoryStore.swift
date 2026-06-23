@@ -69,7 +69,13 @@ final class BrowserHistoryStore {
 
     func clear(profileID: UUID) {
         entries.removeAll { $0.profileID == profileID }
-        scheduleSave()
+        saveImmediately()
+    }
+
+    func saveImmediately() {
+        saveTask?.cancel()
+        saveTask = nil
+        saveToDisk(entries)
     }
 
     private func trimIfNeeded() {

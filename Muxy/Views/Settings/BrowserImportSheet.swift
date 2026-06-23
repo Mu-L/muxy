@@ -18,7 +18,7 @@ struct BrowserImportSheet: View {
         }
         .padding(UIMetrics.spacing8)
         .frame(width: UIMetrics.scaled(440))
-        .task { load() }
+        .task { await load() }
     }
 
     private var header: some View {
@@ -91,14 +91,15 @@ struct BrowserImportSheet: View {
         }
     }
 
-    private func load() {
-        let importer = CookieImportService.importer(for: source)
-        guard importer.isInstalled() else {
-            loadError = "\(source.displayName) is not installed."
-            return
-        }
+    private func load() async {
         do {
-            profiles = try importer.availableProfiles()
+            profiles = try await Task.detached(priority: .userInitiated) {
+                let importer = CookieImportService.importer(for: source)
+                guard importer.isInstalled() else {
+                    throw BrowserImportError.sourceNotInstalled
+                }
+                return try importer.availableProfiles()
+            }.value
         } catch {
             loadError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }

@@ -428,7 +428,17 @@ case "$COMMAND" in
                             ;;
                     esac
                 done
-                send_command "browser.open|$URL|$SPLIT"
+                if [ -n "$SPLIT" ]; then
+                    if [ -n "$HAS_URL" ]; then
+                        send_command "browser.open|$URL|$SPLIT"
+                    else
+                        send_command "browser.open|$SPLIT"
+                    fi
+                elif [ -n "$HAS_URL" ]; then
+                    send_command "browser.open|$URL"
+                else
+                    send_command "browser.open"
+                fi
                 ;;
             navigate)
                 [ $# -lt 2 ] && die_usage browser
