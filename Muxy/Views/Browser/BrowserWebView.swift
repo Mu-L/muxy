@@ -14,6 +14,15 @@ struct BrowserWebView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> WKWebView {
+        if let webView = state.webView {
+            webView.navigationDelegate = context.coordinator
+            webView.uiDelegate = context.coordinator
+            context.coordinator.attach(to: webView)
+            BrowserWebViewRegistry.shared.register(webView, for: state.id)
+            webView.pageZoom = state.pageZoom
+            return webView
+        }
+
         let config = WKWebViewConfiguration()
         config.defaultWebpagePreferences.allowsContentJavaScript = true
         config.websiteDataStore = BrowserDataStoreCache.shared.store(for: state.profileID)
@@ -27,10 +36,10 @@ struct BrowserWebView: NSViewRepresentable {
         webView.allowsMagnification = true
 
         context.coordinator.attach(to: webView)
+        state.webView = webView
         BrowserWebViewRegistry.shared.register(webView, for: state.id)
         webView.pageZoom = state.pageZoom
-        if let url = state.pendingURL {
-            state.pendingURL = nil
+        if let url = state.navigationURLForWebViewMount() {
             webView.load(URLRequest(url: url))
         }
         return webView
@@ -133,8 +142,7 @@ struct BrowserWebView: NSViewRepresentable {
         }
 
         func applyPendingNavigation(in webView: WKWebView) {
-            guard let url = state.pendingURL else { return }
-            state.pendingURL = nil
+            guard let url = state.consumePendingNavigationURL() else { return }
             webView.load(URLRequest(url: url))
         }
 

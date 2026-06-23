@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import WebKit
 
 @MainActor
 @Observable
@@ -41,6 +42,7 @@ final class BrowserTabState: Identifiable {
     var pendingFind: FindRequest?
     var findActivationToken = 0
     var findFoundMatch = true
+    @ObservationIgnored var webView: WKWebView?
 
     var isBlank: Bool {
         guard let absoluteString = url?.absoluteString else { return true }
@@ -64,6 +66,23 @@ final class BrowserTabState: Identifiable {
     func load(from input: String) {
         guard let resolved = BrowserURL.resolve(from: input) else { return }
         pendingURL = resolved
+    }
+
+    func navigationURLForWebViewMount() -> URL? {
+        if let pendingURL {
+            self.pendingURL = nil
+            url = pendingURL
+            return pendingURL
+        }
+        guard let url, !BrowserHomePage.isBlankMode(url.absoluteString) else { return nil }
+        return url
+    }
+
+    func consumePendingNavigationURL() -> URL? {
+        guard let pendingURL else { return nil }
+        self.pendingURL = nil
+        url = pendingURL
+        return pendingURL
     }
 
     func activateFind() {

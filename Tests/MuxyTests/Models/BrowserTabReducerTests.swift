@@ -112,4 +112,28 @@ struct BrowserTabReducerTests {
         let restored = TerminalTab(restoring: tab.snapshot())
         #expect(restored.content.browserState?.shouldFocusAddressOnOpen == false)
     }
+
+    @Test("browser tab remount reuses the current url")
+    func remountUsesCurrentURL() throws {
+        let url = try #require(URL(string: "https://muxy.app/docs"))
+        let state = BrowserTabState(projectPath: testPath, url: url)
+
+        #expect(state.navigationURLForWebViewMount() == url)
+        #expect(state.pendingURL == nil)
+        #expect(state.navigationURLForWebViewMount() == url)
+    }
+
+    @Test("pending browser navigation wins over the current url")
+    func pendingNavigationWinsOverCurrentURL() throws {
+        let firstURL = try #require(URL(string: "https://muxy.app"))
+        let secondURL = try #require(URL(string: "https://muxy.app/docs"))
+        let state = BrowserTabState(projectPath: testPath, url: firstURL)
+        _ = state.navigationURLForWebViewMount()
+
+        state.pendingURL = secondURL
+
+        #expect(state.navigationURLForWebViewMount() == secondURL)
+        #expect(state.url == secondURL)
+        #expect(state.pendingURL == nil)
+    }
 }
