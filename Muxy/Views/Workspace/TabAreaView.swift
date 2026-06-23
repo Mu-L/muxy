@@ -148,6 +148,10 @@ struct TabAreaView: View {
             guard let tabID = area.activeTabID,
                   let tab = area.tabs.first(where: { $0.id == tabID })
             else { return }
+            if let browserState = tab.content.browserState {
+                browserState.activateFind()
+                return
+            }
             guard let pane = tab.content.pane else { return }
             TerminalViewRegistry.shared.existingView(for: pane.id)?.startSearch()
         }

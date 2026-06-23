@@ -8,6 +8,14 @@ final class BrowserTabState: Identifiable {
         case forward
         case reload
         case stop
+        case zoomIn
+        case zoomOut
+        case zoomReset
+    }
+
+    struct FindRequest: Equatable {
+        let query: String
+        let backwards: Bool
     }
 
     let id = UUID()
@@ -24,6 +32,11 @@ final class BrowserTabState: Identifiable {
     var isLoading: Bool = false
     var estimatedProgress: Double = 0
     var shouldFocusAddressOnOpen = true
+    var pageZoom: Double = 1
+    var loadError: BrowserLoadError?
+    var pendingFind: FindRequest?
+    var findActivationToken = 0
+    var findFoundMatch = true
 
     var displayTitle: String {
         if let customTitle, !customTitle.isEmpty { return customTitle }
@@ -42,5 +55,9 @@ final class BrowserTabState: Identifiable {
     func load(from input: String) {
         guard let resolved = BrowserURL.resolve(from: input) else { return }
         pendingURL = resolved
+    }
+
+    func activateFind() {
+        findActivationToken += 1
     }
 }

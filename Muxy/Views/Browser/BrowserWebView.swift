@@ -25,6 +25,7 @@ struct BrowserWebView: NSViewRepresentable {
 
         context.coordinator.attach(to: webView)
         BrowserWebViewRegistry.shared.register(webView, for: state.id)
+        webView.pageZoom = state.pageZoom
         if let url = state.pendingURL {
             state.pendingURL = nil
             webView.load(URLRequest(url: url))
@@ -35,6 +36,7 @@ struct BrowserWebView: NSViewRepresentable {
     func updateNSView(_ webView: WKWebView, context: Context) {
         context.coordinator.applyPendingCommand(in: webView)
         context.coordinator.applyPendingNavigation(in: webView)
+        context.coordinator.applyPendingFind(in: webView)
         context.coordinator.applyFocusIfChanged(focused, overlayActive: overlayActive, in: webView)
     }
 
@@ -116,6 +118,29 @@ struct BrowserWebView: NSViewRepresentable {
             case .forward: webView.goForward()
             case .reload: webView.reload()
             case .stop: webView.stopLoading()
+            case .zoomIn: applyZoom(BrowserZoom.zoomIn(state.pageZoom), to: webView)
+            case .zoomOut: applyZoom(BrowserZoom.zoomOut(state.pageZoom), to: webView)
+            case .zoomReset: applyZoom(BrowserZoom.defaultValue, to: webView)
+            }
+        }
+
+        private func applyZoom(_ zoom: Double, to webView: WKWebView) {
+            state.pageZoom = zoom
+            webView.pageZoom = zoom
+        }
+
+        func applyPendingFind(in webView: WKWebView) {
+            guard let request = state.pendingFind else { return }
+            state.pendingFind = nil
+            guard !request.query.isEmpty else {
+                state.findFoundMatch = true
+                return
+            }
+            let configuration = WKFindConfiguration()
+            configuration.backwards = request.backwards
+            configuration.wraps = true
+            webView.find(request.query, configuration: configuration) { [weak self] result in
+                MainActor.assumeIsolated { self?.state.findFoundMatch = result.matchFound }
             }
         }
 
@@ -140,6 +165,26 @@ struct BrowserWebView: NSViewRepresentable {
 }
 
 extension BrowserWebView.Coordinator: WKNavigationDelegate, WKUIDelegate {
+    func webView(_: WKWebView, didStartProvisionalNavigation _: WKNavigation!) {
+        state.loadError = nil
+    }
+
+    func webView(_: WKWebView, didFinish _: WKNavigation!) {
+        state.loadError = nil
+    }
+
+    func webView(_ webView: WKWebView, didFail _: WKNavigation!, withError error: Error) {
+        state.loadError = BrowserLoadError.make(from: error, url: webView.url ?? state.url)
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        didFailProvisionalNavigation _: WKNavigation!,
+        withError error: Error
+    ) {
+        state.loadError = BrowserLoadError.make(from: error, url: webView.url ?? state.url)
+    }
+
     func webView(
         _: WKWebView,
         decidePolicyFor navigationAction: WKNavigationAction,

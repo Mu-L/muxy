@@ -9,24 +9,52 @@ struct BrowserPane: View {
     @Environment(BrowserHistoryStore.self) private var historyStore
     @Environment(\.overlayActive) private var overlayActive
     @State private var addressFieldFocused = false
+    @State private var findVisible = false
+    @State private var findFieldFocused = false
+    @State private var findQuery = ""
 
     var body: some View {
         VStack(spacing: 0) {
             BrowserToolbar(state: state, addressFieldFocused: $addressFieldFocused)
-            BrowserWebView(
-                state: state,
-                focused: focused && !addressFieldFocused,
-                overlayActive: overlayActive,
-                appState: appState,
-                historyStore: historyStore
-            )
-            .id(state.profileID)
-            .contentShape(Rectangle())
-            .onTapGesture { onFocus() }
+            if findVisible {
+                BrowserFindBar(
+                    state: state,
+                    query: $findQuery,
+                    fieldFocused: $findFieldFocused,
+                    onClose: closeFind
+                )
+            }
+            ZStack {
+                BrowserWebView(
+                    state: state,
+                    focused: focused && !addressFieldFocused && !findFieldFocused,
+                    overlayActive: overlayActive,
+                    appState: appState,
+                    historyStore: historyStore
+                )
+                .id(state.profileID)
+                .contentShape(Rectangle())
+                .onTapGesture { onFocus() }
+
+                if let loadError = state.loadError {
+                    BrowserErrorView(error: loadError, onRetry: retry)
+                }
+            }
         }
         .background(MuxyTheme.bg)
         .background(shortcuts)
         .onAppear(perform: focusAddressFieldOnOpen)
+        .onChange(of: state.findActivationToken) { _, _ in findVisible = true }
+    }
+
+    private func closeFind() {
+        findVisible = false
+        findFieldFocused = false
+    }
+
+    private func retry() {
+        state.loadError = nil
+        state.pendingCommand = .reload
     }
 
     private func focusAddressFieldOnOpen() {
@@ -47,6 +75,12 @@ struct BrowserPane: View {
                     .keyboardShortcut("[", modifiers: .command)
                 Button("") { state.pendingCommand = .forward }
                     .keyboardShortcut("]", modifiers: .command)
+                Button("") { state.pendingCommand = .zoomIn }
+                    .keyboardShortcut("=", modifiers: .command)
+                Button("") { state.pendingCommand = .zoomOut }
+                    .keyboardShortcut("-", modifiers: .command)
+                Button("") { state.pendingCommand = .zoomReset }
+                    .keyboardShortcut("0", modifiers: .command)
             }
             .opacity(0)
             .frame(width: 0, height: 0)
