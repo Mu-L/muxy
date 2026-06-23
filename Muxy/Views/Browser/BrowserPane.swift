@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct BrowserPane: View {
@@ -15,7 +16,11 @@ struct BrowserPane: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            BrowserToolbar(state: state, addressFieldFocused: $addressFieldFocused)
+            BrowserToolbar(
+                state: state,
+                addressFieldFocused: $addressFieldFocused,
+                onAddressFocusClaimed: addressFocusClaimed
+            )
             if findVisible {
                 BrowserFindBar(
                     state: state,
@@ -27,7 +32,12 @@ struct BrowserPane: View {
             ZStack {
                 BrowserWebView(
                     state: state,
-                    focused: focused && !addressFieldFocused && !findFieldFocused,
+                    focused: Self.shouldFocusWebView(
+                        paneFocused: focused,
+                        addressFieldFocused: addressFieldFocused,
+                        findFieldFocused: findFieldFocused,
+                        addressFocusPending: state.shouldFocusAddressOnOpen
+                    ),
                     overlayActive: overlayActive,
                     appState: appState,
                     historyStore: historyStore
@@ -38,12 +48,24 @@ struct BrowserPane: View {
 
                 if let loadError = state.loadError {
                     BrowserErrorView(error: loadError, onRetry: retry)
+                } else if state.isBlank, !state.isLoading {
+                    BrowserStartPage(
+                        searchEngineName: BrowserPreferences.searchEngine.displayName,
+                        onFocusAddress: { addressFieldFocused = true }
+                    )
                 }
             }
         }
         .background(MuxyTheme.bg)
         .background(shortcuts)
         .onAppear(perform: focusAddressFieldOnOpen)
+        .onChange(of: focused) { _, isFocused in
+            guard isFocused else {
+                addressFieldFocused = false
+                return
+            }
+            focusAddressFieldOnOpen()
+        }
         .onChange(of: state.findActivationToken) { _, _ in findVisible = true }
     }
 
@@ -57,10 +79,30 @@ struct BrowserPane: View {
         state.pendingCommand = .reload
     }
 
+    private func copyCurrentURL() {
+        guard let absoluteString = state.url?.absoluteString,
+              !BrowserHomePage.isBlankMode(absoluteString)
+        else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(absoluteString, forType: .string)
+    }
+
     private func focusAddressFieldOnOpen() {
-        guard state.shouldFocusAddressOnOpen else { return }
-        state.shouldFocusAddressOnOpen = false
+        guard focused, state.shouldFocusAddressOnOpen else { return }
         addressFieldFocused = true
+    }
+
+    private func addressFocusClaimed() {
+        state.shouldFocusAddressOnOpen = false
+    }
+
+    static func shouldFocusWebView(
+        paneFocused: Bool,
+        addressFieldFocused: Bool,
+        findFieldFocused: Bool,
+        addressFocusPending: Bool
+    ) -> Bool {
+        paneFocused && !addressFieldFocused && !findFieldFocused && !addressFocusPending
     }
 
     @ViewBuilder
@@ -81,6 +123,8 @@ struct BrowserPane: View {
                     .keyboardShortcut("-", modifiers: .command)
                 Button("") { state.pendingCommand = .zoomReset }
                     .keyboardShortcut("0", modifiers: .command)
+                Button("", action: copyCurrentURL)
+                    .keyboardShortcut("c", modifiers: [.command, .shift])
             }
             .opacity(0)
             .frame(width: 0, height: 0)

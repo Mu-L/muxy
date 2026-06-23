@@ -7,11 +7,15 @@ struct BrowserSuggestionList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(model.suggestions.enumerated()), id: \.element.id) { index, entry in
-                row(for: entry, isSelected: index == model.selectedIndex)
+                row(for: entry, isSelected: isSelected(index: index, entry: entry))
                     .contentShape(Rectangle())
                     .onTapGesture { onSelect(entry) }
                     .onHover { hovering in
-                        if hovering { model.selectedIndex = index }
+                        if hovering {
+                            model.hover(entry)
+                        } else if model.hoveredEntryID == entry.id {
+                            model.hover(nil)
+                        }
                     }
             }
         }
@@ -26,12 +30,23 @@ struct BrowserSuggestionList: View {
         )
     }
 
+    private func isSelected(index: Int, entry: BrowserHistoryEntry) -> Bool {
+        if index == model.selectedIndex {
+            return true
+        }
+        guard model.selectedIndex == nil else {
+            return false
+        }
+        if let hoveredEntryID = model.hoveredEntryID {
+            return hoveredEntryID == entry.id
+        }
+        return false
+    }
+
     private func row(for entry: BrowserHistoryEntry, isSelected: Bool) -> some View {
         HStack(spacing: UIMetrics.spacing3) {
-            Image(systemName: "clock.arrow.circlepath")
-                .font(.system(size: UIMetrics.fontCaption))
-                .foregroundStyle(MuxyTheme.fgDim)
-                .frame(width: UIMetrics.iconMD)
+            suggestionIcon(for: entry)
+                .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
 
             VStack(alignment: .leading, spacing: 0) {
                 if let title = entry.title, !title.isEmpty {
@@ -50,5 +65,18 @@ struct BrowserSuggestionList: View {
         .padding(.horizontal, UIMetrics.spacing4)
         .padding(.vertical, UIMetrics.spacing2)
         .background(isSelected ? MuxyTheme.hover : Color.clear)
+    }
+
+    @ViewBuilder
+    private func suggestionIcon(for entry: BrowserHistoryEntry) -> some View {
+        if let url = URL(string: entry.url), let favicon = FaviconStore.shared.favicon(for: url) {
+            Image(nsImage: favicon)
+                .resizable()
+                .interpolation(.high)
+        } else {
+            Image(systemName: "clock.arrow.circlepath")
+                .font(.system(size: UIMetrics.fontCaption))
+                .foregroundStyle(MuxyTheme.fgDim)
+        }
     }
 }

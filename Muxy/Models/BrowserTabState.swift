@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 @MainActor
@@ -34,9 +35,16 @@ final class BrowserTabState: Identifiable {
     var shouldFocusAddressOnOpen = true
     var pageZoom: Double = 1
     var loadError: BrowserLoadError?
+    var faviconURL: URL?
+    var faviconImage: NSImage?
     var pendingFind: FindRequest?
     var findActivationToken = 0
     var findFoundMatch = true
+
+    var isBlank: Bool {
+        guard let absoluteString = url?.absoluteString else { return true }
+        return BrowserHomePage.isBlankMode(absoluteString)
+    }
 
     var displayTitle: String {
         if let customTitle, !customTitle.isEmpty { return customTitle }

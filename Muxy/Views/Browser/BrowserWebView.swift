@@ -88,7 +88,32 @@ struct BrowserWebView: NSViewRepresentable {
         private func handleURLChange(_ url: URL?, title: String?) {
             state.url = url
             guard let url else { return }
+            state.faviconImage = FaviconStore.shared.favicon(for: url)
             historyStore.record(url: url, title: title, profileID: state.profileID)
+        }
+
+        func extractFavicon(from webView: WKWebView) {
+            guard let pageURL = webView.url else { return }
+            let script = """
+            (function() {
+              var links = document.querySelectorAll('link[rel~="icon"]');
+              if (links.length) { return links[links.length - 1].href; }
+              return location.origin + '/favicon.ico';
+            })()
+            """
+            webView.evaluateJavaScript(script) { [weak self] result, _ in
+                MainActor.assumeIsolated {
+                    guard let self,
+                          let href = result as? String,
+                          let iconURL = URL(string: href)
+                    else { return }
+                    self.state.faviconURL = iconURL
+                    FaviconStore.shared.load(for: pageURL, iconURL: iconURL) { [weak self] image in
+                        guard let image else { return }
+                        self?.state.faviconImage = image
+                    }
+                }
+            }
         }
 
         private func handleTitleChange(_ title: String?, url: URL?) {
@@ -169,8 +194,9 @@ extension BrowserWebView.Coordinator: WKNavigationDelegate, WKUIDelegate {
         state.loadError = nil
     }
 
-    func webView(_: WKWebView, didFinish _: WKNavigation!) {
+    func webView(_ webView: WKWebView, didFinish _: WKNavigation!) {
         state.loadError = nil
+        extractFavicon(from: webView)
     }
 
     func webView(_ webView: WKWebView, didFail _: WKNavigation!, withError error: Error) {

@@ -4,6 +4,7 @@ import SwiftUI
 struct BrowserToolbar: View {
     let state: BrowserTabState
     @Binding var addressFieldFocused: Bool
+    let onAddressFocusClaimed: () -> Void
 
     @Environment(BrowserProfileStore.self) private var profileStore
     @Environment(BrowserHistoryStore.self) private var historyStore
@@ -63,9 +64,9 @@ struct BrowserToolbar: View {
         }
     }
 
-    private func submitAddress(_ selected: BrowserHistoryEntry?) {
-        let target = selected?.url ?? addressText
-        if let selected { addressText = selected.url }
+    private func submitAddress(_ selected: BrowserHistoryEntry?, text: String) {
+        let target = selected?.url ?? text
+        addressText = target
         state.load(from: target)
         addressFieldFocused = false
     }
@@ -158,6 +159,7 @@ struct BrowserToolbar: View {
             isFocused: $addressFieldFocused,
             model: suggestionModel,
             suggestionsProvider: { historyStore.suggestions(for: $0, profileID: state.profileID) },
+            onFocusClaimed: onAddressFocusClaimed,
             onSubmit: submitAddress
         )
         .padding(.horizontal, UIMetrics.spacing4)

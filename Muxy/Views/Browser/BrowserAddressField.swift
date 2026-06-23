@@ -6,7 +6,8 @@ struct BrowserAddressField: NSViewRepresentable {
     @Binding var isFocused: Bool
     let model: BrowserSuggestionModel
     let suggestionsProvider: (String) -> [BrowserHistoryEntry]
-    let onSubmit: (BrowserHistoryEntry?) -> Void
+    let onFocusClaimed: () -> Void
+    let onSubmit: (BrowserHistoryEntry?, String) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -14,6 +15,7 @@ struct BrowserAddressField: NSViewRepresentable {
             isFocused: $isFocused,
             model: model,
             suggestionsProvider: suggestionsProvider,
+            onFocusClaimed: onFocusClaimed,
             onSubmit: onSubmit
         )
     }
@@ -28,6 +30,7 @@ struct BrowserAddressField: NSViewRepresentable {
         field.delegate = context.coordinator
         field.target = context.coordinator
         field.action = #selector(Coordinator.handleSubmit)
+        field.cell?.sendsActionOnEndEditing = false
         field.placeholderAttributedString = NSAttributedString(
             string: "Search or enter address",
             attributes: [
@@ -56,41 +59,76 @@ struct BrowserAddressField: NSViewRepresentable {
         private let isFocused: Binding<Bool>
         private let model: BrowserSuggestionModel
         private let suggestionsProvider: (String) -> [BrowserHistoryEntry]
-        private let onSubmit: (BrowserHistoryEntry?) -> Void
+        private let onFocusClaimed: () -> Void
+        private let onSubmit: (BrowserHistoryEntry?, String) -> Void
+        private var focusRequestID = 0
 
         weak var field: NSTextField?
         private(set) var isEditing = false
         private var panel: BrowserSuggestionPanel?
         private var clickMonitor: Any?
+        private static let focusAttemptLimit = 12
 
         init(
             text: Binding<String>,
             isFocused: Binding<Bool>,
             model: BrowserSuggestionModel,
             suggestionsProvider: @escaping (String) -> [BrowserHistoryEntry],
-            onSubmit: @escaping (BrowserHistoryEntry?) -> Void
+            onFocusClaimed: @escaping () -> Void,
+            onSubmit: @escaping (BrowserHistoryEntry?, String) -> Void
         ) {
             self.text = text
             self.isFocused = isFocused
             self.model = model
             self.suggestionsProvider = suggestionsProvider
+            self.onFocusClaimed = onFocusClaimed
             self.onSubmit = onSubmit
         }
 
         func applyFocus(_ shouldFocus: Bool) {
             guard let field else { return }
             let isFirstResponder = field.currentEditor() != nil
-            guard shouldFocus != isFirstResponder else { return }
             if shouldFocus {
-                field.window?.makeFirstResponder(field)
-            } else if isFirstResponder {
+                guard !isFirstResponder else { return }
+                focusRequestID += 1
+                claimFocus(for: field, requestID: focusRequestID, attempt: 0)
+                return
+            }
+            focusRequestID += 1
+            if isFirstResponder {
                 field.window?.makeFirstResponder(nil)
             }
+        }
+
+        private func claimFocus(for field: NSTextField, requestID: Int, attempt: Int) {
+            guard attempt < Self.focusAttemptLimit else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + focusRetryDelay(for: attempt)) { [weak self, weak field] in
+                guard let self, let field else { return }
+                guard self.focusRequestID == requestID, self.isFocused.wrappedValue else { return }
+                guard let window = field.window else {
+                    self.claimFocus(for: field, requestID: requestID, attempt: attempt + 1)
+                    return
+                }
+                if field.currentEditor() != nil {
+                    return
+                }
+                window.makeFirstResponder(field)
+                guard field.currentEditor() == nil else { return }
+                self.claimFocus(for: field, requestID: requestID, attempt: attempt + 1)
+            }
+        }
+
+        private func focusRetryDelay(for attempt: Int) -> DispatchTimeInterval {
+            if attempt == 0 {
+                return .milliseconds(0)
+            }
+            return .milliseconds(min(120, attempt * 16))
         }
 
         func controlTextDidBeginEditing(_: Notification) {
             isEditing = true
             isFocused.wrappedValue = true
+            onFocusClaimed()
             field?.currentEditor()?.selectAll(nil)
             refreshSuggestions()
         }
@@ -121,6 +159,10 @@ struct BrowserAddressField: NSViewRepresentable {
                 guard panel?.isVisible == true else { return false }
                 dismissSuggestions()
                 return true
+            case #selector(NSResponder.insertNewline(_:)),
+                 #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)):
+                handleSubmit()
+                return true
             default:
                 return false
             }
@@ -128,9 +170,8 @@ struct BrowserAddressField: NSViewRepresentable {
 
         @objc
         func handleSubmit() {
-            let selected = model.selectedEntry
-            dismissSuggestions()
-            onSubmit(selected)
+            let selected = model.activeEntry
+            commit(selected)
         }
 
         private func refreshSuggestions() {
@@ -159,8 +200,20 @@ struct BrowserAddressField: NSViewRepresentable {
         }
 
         private func accept(_ entry: BrowserHistoryEntry) {
+            commit(entry)
+        }
+
+        private func commit(_ selected: BrowserHistoryEntry?) {
+            let submittedText = field?.stringValue ?? text.wrappedValue
+            if let selected {
+                isEditing = false
+                text.wrappedValue = selected.url
+                field?.stringValue = selected.url
+            } else {
+                text.wrappedValue = submittedText
+            }
             dismissSuggestions()
-            onSubmit(entry)
+            onSubmit(selected, submittedText)
         }
 
         private func dismissSuggestions() {
@@ -192,6 +245,7 @@ struct BrowserAddressField: NSViewRepresentable {
         }
 
         func tearDown() {
+            focusRequestID += 1
             dismissSuggestions()
             panel = nil
         }

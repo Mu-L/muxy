@@ -14,6 +14,7 @@ struct PaneTabStrip: View {
         let extensionID: String?
         let customIcon: ExtensionIcon?
         let isOffline: Bool
+        let faviconImage: NSImage?
     }
 
     let areaID: UUID
@@ -58,7 +59,8 @@ struct PaneTabStrip: View {
                 colorID: tab.colorID,
                 extensionID: tab.content.extensionState?.extensionID,
                 customIcon: tab.content.extensionState?.customIcon,
-                isOffline: tab.content.pane?.isOffline ?? false
+                isOffline: tab.content.pane?.isOffline ?? false,
+                faviconImage: tab.content.browserState?.faviconImage
             )
         }
     }
@@ -660,8 +662,15 @@ private struct TabCell: View {
             case .extensionWebView:
                 extensionIconView
             case .browser:
-                Image(systemName: "globe")
-                    .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+                if let favicon = tab.faviconImage {
+                    Image(nsImage: favicon)
+                        .resizable()
+                        .interpolation(.high)
+                        .frame(width: UIMetrics.iconMD, height: UIMetrics.iconMD)
+                } else {
+                    Image(systemName: "globe")
+                        .font(.system(size: UIMetrics.fontBody, weight: .semibold))
+                }
             }
         }
     }
