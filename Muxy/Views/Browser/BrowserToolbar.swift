@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct BrowserToolbar: View {
@@ -144,25 +145,34 @@ struct BrowserToolbar: View {
     }
 
     private var addressField: some View {
-        BrowserAddressField(
-            text: $addressText,
-            focused: Binding(
-                get: { addressFieldFocused },
-                set: { addressFieldFocused = $0 }
-            ),
-            placeholder: "Search or enter address"
-        ) {
-            state.load(from: addressText)
-            addressFieldFocused = false
+        TextField("Search or enter address", text: $addressText)
+            .textFieldStyle(.plain)
+            .font(.system(size: UIMetrics.fontBody))
+            .foregroundStyle(MuxyTheme.fg)
+            .focused($addressFieldFocused)
+            .onSubmit {
+                state.load(from: addressText)
+                addressFieldFocused = false
+            }
+            .onChange(of: addressFieldFocused) { _, focused in
+                guard focused else { return }
+                selectAllAddressText()
+            }
+            .padding(.horizontal, UIMetrics.spacing4)
+            .frame(height: UIMetrics.controlSmall)
+            .background(MuxyTheme.bg)
+            .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
+            .overlay(
+                RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
+                    .strokeBorder(addressFieldFocused ? MuxyTheme.accent : MuxyTheme.border, lineWidth: 1)
+            )
+    }
+
+    private func selectAllAddressText() {
+        DispatchQueue.main.async {
+            guard let editor = (NSApp.keyWindow?.firstResponder as? NSTextView) else { return }
+            editor.selectAll(nil)
         }
-        .padding(.horizontal, UIMetrics.spacing4)
-        .frame(height: UIMetrics.controlSmall)
-        .background(MuxyTheme.bg)
-        .clipShape(RoundedRectangle(cornerRadius: UIMetrics.radiusMD))
-        .overlay(
-            RoundedRectangle(cornerRadius: UIMetrics.radiusMD)
-                .strokeBorder(addressFieldFocused ? MuxyTheme.accent : MuxyTheme.border, lineWidth: 1)
-        )
     }
 
     private var displayURLText: String {

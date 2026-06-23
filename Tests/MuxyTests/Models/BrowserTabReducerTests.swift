@@ -86,4 +86,30 @@ struct BrowserTabReducerTests {
         #expect(restored.kind == .browser)
         #expect(restored.content.browserState?.url?.absoluteString == "https://muxy.app/docs")
     }
+
+    @Test("a newly created browser tab requests address field focus")
+    func newBrowserTabFocusesAddress() {
+        let projectID = UUID()
+        let worktreeID = UUID()
+        var state = makeState(projectID: projectID, worktreeID: worktreeID)
+
+        let action = AppState.Action.createBrowserTab(
+            projectID: projectID,
+            areaID: nil,
+            url: nil,
+            profileID: BrowserProfile.defaultID
+        )
+        _ = WorkspaceReducer.reduce(action: action, state: &state)
+
+        let tab = focusedArea(in: state, projectID: projectID)?.activeTab
+        #expect(tab?.content.browserState?.shouldFocusAddressOnOpen == true)
+    }
+
+    @Test("a restored browser tab does not request address field focus")
+    func restoredBrowserTabDoesNotFocusAddress() {
+        let state = BrowserTabState(projectPath: testPath, url: URL(string: "https://muxy.app/docs"))
+        let tab = TerminalTab(browserState: state)
+        let restored = TerminalTab(restoring: tab.snapshot())
+        #expect(restored.content.browserState?.shouldFocusAddressOnOpen == false)
+    }
 }

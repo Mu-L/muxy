@@ -24,6 +24,13 @@ struct BrowserPane: View {
         }
         .background(MuxyTheme.bg)
         .background(shortcuts)
+        .onAppear(perform: focusAddressFieldOnOpen)
+    }
+
+    private func focusAddressFieldOnOpen() {
+        guard state.shouldFocusAddressOnOpen else { return }
+        state.shouldFocusAddressOnOpen = false
+        addressFieldFocused = true
     }
 
     @ViewBuilder

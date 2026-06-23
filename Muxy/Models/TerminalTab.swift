@@ -115,11 +115,13 @@ final class TerminalTab: Identifiable {
                 content = .terminal(TerminalPaneState(projectPath: snapshot.projectPath, title: snapshot.paneTitle))
             }
         case .browser:
-            content = .browser(BrowserTabState(
+            let browserState = BrowserTabState(
                 projectPath: snapshot.projectPath,
                 url: snapshot.browserURL.flatMap(URL.init(string:)),
                 profileID: snapshot.browserProfileID.flatMap(UUID.init(uuidString:)) ?? BrowserProfile.defaultID
-            ))
+            )
+            browserState.shouldFocusAddressOnOpen = false
+            content = .browser(browserState)
         }
     }
 

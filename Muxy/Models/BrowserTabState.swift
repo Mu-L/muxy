@@ -23,6 +23,7 @@ final class BrowserTabState: Identifiable {
     var canGoForward: Bool = false
     var isLoading: Bool = false
     var estimatedProgress: Double = 0
+    var shouldFocusAddressOnOpen = true
 
     var displayTitle: String {
         if let customTitle, !customTitle.isEmpty { return customTitle }
