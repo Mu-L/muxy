@@ -148,7 +148,7 @@ window.muxy = {
     list(): Promise<PaneInfo[]>,
     send(paneID, text): Promise<void>,
     sendKeys(paneID, key): Promise<void>,
-    readScreen(paneID, lines?): Promise<string>,
+    readScreen(paneID, lines?): Promise<string>,   // lines defaults to 50, clamped to 1–500
     close(paneID): Promise<void>,
     rename(paneID, title): Promise<void>,
   },
@@ -175,6 +175,7 @@ interface ExecResult {
   stderr: string;
   exitCode: number;
   timedOut: boolean;
+  truncated: boolean;   // true when output was capped — see below
 }
 ```
 
@@ -260,7 +261,7 @@ await muxy.exec(['ls'], { cwd: '~', timeoutMs: 5000 });
 
 - Default cwd is the active worktree; override with `options.cwd` (`~` expands).
 - Default timeout is 30 s. On timeout the child gets `SIGTERM`, then `SIGKILL` 2 s later, and the Promise resolves with `timedOut: true`.
-- Combined output is capped at 10 MB; beyond that it resolves with `truncated: true` and the captured prefix.
+- stdout and stderr are each capped at 10 MB independently; if either is exceeded it resolves with `truncated: true` and the captured prefix.
 - `PATH` is taken from the user's login shell at startup, so `git`, `npm`, etc. resolve without absolute paths.
 
 ### Subscribing to workspace events

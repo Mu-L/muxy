@@ -8,8 +8,7 @@ flowchart TB
   CLI --> Add[Add a project]
   Install --> Add
   Add --> Tabs[Open tabs / splits]
-  Tabs --> Worktree[Switch worktree<br/>⌘⇧O]
-  Tabs --> VCS[Source Control<br/>⌘K]
+  Tabs --> Worktree[Switch worktree]
   Tabs --> Rich[Rich Input<br/>⌘I]
 ```
 
@@ -21,7 +20,7 @@ flowchart TB
 
 1. Download the latest build from the releases page.
 2. Drag `Muxy.app` to `/Applications` and launch it.
-3. Optional: **Muxy → Install CLI** writes a `muxy` wrapper to `/usr/local/bin/muxy`.
+3. Optional: **Muxy -> Install CLI** writes a `muxy` wrapper to `/usr/local/bin/muxy`. If that location needs admin access and installation fails, Muxy falls back to `~/bin/muxy` or `~/.local/bin/muxy`.
 
 ## Add your first project
 
@@ -45,20 +44,16 @@ Projects persist in `~/Library/Application Support/Muxy/projects.json`.
 | Close pane / tab | `⌘⇧W` / `⌘W` |
 | Switch tabs | `⌘1…9`, `⌘]` / `⌘[` |
 
-Tabs can also hold a Source Control view. See [Tabs & Splits](../features/tabs-and-splits.md).
+Tabs can also hold a browser or an extension view. See [Tabs & Splits](../features/tabs-and-splits.md).
 
 ## Switching projects & worktrees
 
 - **Project navigation**: `⌃]` / `⌃[`, or `⌃1…9`.
-- **Switch worktree**: `⌘⇧O`. Each worktree has its own tabs/splits.
-
-## Source Control
-
-`⌘K` opens the source-control view: staged/unstaged/untracked, commit box, branches, PRs. See [Source Control](../features/source-control.md).
+- **Switch worktree**: use the worktree picker on the project row (or the `switch-worktree` [CLI command](../features/muxy-cli.md)). Each worktree has its own tabs/splits.
 
 ## Configuring Ghostty
 
-Muxy renders terminals through libghostty. Edit `~/.config/ghostty/config` from **Muxy → Open Configuration…** and reload with `⌘⇧R`.
+Muxy renders terminals through libghostty. Edit its Ghostty config from **Muxy -> Open Configuration...** and reload with `⌘⇧R`. See [Terminal](../features/terminal.md#configuration) for the config path and how Muxy seeds it on first launch.
 
 ## Next steps
 

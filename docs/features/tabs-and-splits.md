@@ -18,7 +18,7 @@ Splits nest arbitrarily — the layout is a binary tree of horizontal and vertic
 | Kind | What it is |
 | --- | --- |
 | Terminal | A libghostty-powered terminal (the default) |
-| Source Control | The git status / diff / branches / PRs view (`⌘K`) |
+| Browser | A built-in browser tab |
 | Extension | A tab rendered by an installed extension |
 
 ## Creating tabs
@@ -30,8 +30,8 @@ Splits nest arbitrarily — the layout is a binary tree of horizontal and vertic
 
 ## Renaming, pinning, coloring
 
-- **Rename Tab** — `Cmd+Opt+T`, or double-click the tab title.
-- **Pin / Unpin** — `⌘⇧P`. Pinned tabs stay leftmost.
+- **Rename Tab** — double-click the tab title (or bind a shortcut in Settings → Keyboard Shortcuts; unbound by default).
+- **Pin / Unpin** — right-click the tab → **Pin** (or bind a shortcut; unbound by default). Pinned tabs stay leftmost.
 - Right-click → **Color** to apply an accent.
 - Right-click → **Close Others / Close to the Left / Close to the Right**.
 
@@ -64,4 +64,6 @@ Mouse side buttons (3 / 4) and three-finger horizontal trackpad swipes navigate 
 
 ## Persistence
 
-The tab and split tree per worktree is in-memory only. To recreate a layout, use [Layouts](../layouts/overview.md).
+The tab and split tree per worktree is saved automatically in `~/Library/Application Support/Muxy/workspaces.json`. Muxy restores tabs, split structure, titles, colors, pins, and working directories when it can recreate the workspace.
+
+Use [Layouts](../layouts/overview.md) for reusable presets you want to keep in a repo and apply on demand.
