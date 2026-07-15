@@ -112,7 +112,13 @@ struct ProjectRow: View {
             }
             .contextMenu {
                 if project.isHome {
-                    Button("Hide Home") { hideHome() }
+                    ProjectContextMenuFooter(
+                        path: project.path,
+                        workspaceContext: projectGroupStore.workspaceContext(for: project),
+                        separatesFromPreviousActions: false
+                    ) {
+                        Button("Hide Home") { hideHome() }
+                    }
                 } else {
                     projectContextMenu
                 }
@@ -216,8 +222,12 @@ struct ProjectRow: View {
             Divider()
             ProjectGroupMembershipMenu(project: project)
         }
-        Divider()
-        Button("Remove Project", role: .destructive, action: onRemove)
+        ProjectContextMenuFooter(
+            path: project.path,
+            workspaceContext: projectGroupStore.workspaceContext(for: project)
+        ) {
+            Button("Remove Project", role: .destructive, action: onRemove)
+        }
     }
 
     private var resolvedLogo: NSImage? {
