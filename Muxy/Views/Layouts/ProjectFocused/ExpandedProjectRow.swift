@@ -183,17 +183,19 @@ struct ExpandedProjectRow: View {
             presenting: pendingWorktreeRemoval
         ) { confirmation in
             Button(L10n.string("Remove"), role: .destructive) {
-                performRemove(worktree: confirmation.worktree)
+                worktreeStore.endRemovalPreparation(worktreeID: confirmation.worktree.id)
+                performRemove(confirmation: confirmation)
                 pendingWorktreeRemoval = nil
             }
             .keyboardShortcut(.defaultAction)
             Button(L10n.string("Cancel"), role: .cancel) {
-                pendingWorktreeRemoval = nil
+                clearPendingWorktreeRemoval()
             }
             .keyboardShortcut(.cancelAction)
         } message: { confirmation in
-            Text(L10n.resource(confirmation.message))
+            Text(verbatim: confirmation.message)
         }
+        .onDisappear { clearPendingWorktreeRemoval() }
     }
 
     private var projectHeader: some View {
@@ -495,19 +497,9 @@ struct ExpandedProjectRow: View {
 
     private func handleCreateWorktreeResult(_ result: CreateWorktreeResult) {
         switch result {
-        case let .created(worktree, runSetup):
+        case let .created(worktree):
             appState.selectWorktree(projectID: project.id, worktree: worktree)
             worktreesExpanded = true
-            if runSetup,
-               let paneID = appState.focusedArea(for: project.id)?.activeTab?.content.pane?.id
-            {
-                Task {
-                    await WorktreeSetupRunner.run(
-                        sourceProjectPath: project.path,
-                        paneID: paneID
-                    )
-                }
-            }
         case .cancelled:
             break
         }
@@ -515,14 +507,25 @@ struct ExpandedProjectRow: View {
 
     @MainActor
     private func requestRemove(worktree: Worktree) async {
-        let hasChanges = await GitWorktreeService.shared.hasUncommittedChanges(
-            worktreePath: worktree.path,
-            context: projectGroupStore.workspaceContext(for: project)
-        )
-        pendingWorktreeRemoval = WorktreeRemovalConfirmation(
-            worktree: worktree,
-            hasUncommittedChanges: hasChanges
-        )
+        guard WorktreeRemovalRequestPolicy.canStartInspection(
+            hasPendingConfirmation: pendingWorktreeRemoval != nil,
+            isInspecting: worktreeStore.isPreparingRemoval(worktreeID: worktree.id),
+            isRemoving: worktreeStore.isRemoving(worktreeID: worktree.id)
+        ), worktreeStore.beginRemovalPreparation(worktree: worktree, projectID: project.id)
+        else { return }
+        do {
+            pendingWorktreeRemoval = try await WorktreeRemovalConfirmation.prepare(
+                worktree: worktree,
+                projectPath: project.path,
+                context: projectGroupStore.workspaceContext(for: project)
+            )
+        } catch {
+            worktreeStore.endRemovalPreparation(worktreeID: worktree.id)
+            ToastState.shared.show(
+                title: L10n.string("Could not prepare worktree removal"),
+                body: error.localizedDescription
+            )
+        }
     }
 
     private var worktreeRemovalAlertBinding: Binding<Bool> {
@@ -530,22 +533,32 @@ struct ExpandedProjectRow: View {
             get: { pendingWorktreeRemoval != nil },
             set: { newValue in
                 if !newValue {
-                    pendingWorktreeRemoval = nil
+                    clearPendingWorktreeRemoval()
                 }
             }
         )
     }
 
-    private func performRemove(worktree: Worktree) {
+    private func clearPendingWorktreeRemoval() {
+        guard let pendingWorktreeRemoval else { return }
+        worktreeStore.endRemovalPreparation(worktreeID: pendingWorktreeRemoval.worktree.id)
+        self.pendingWorktreeRemoval = nil
+    }
+
+    private func performRemove(confirmation: WorktreeRemovalConfirmation) {
+        let worktree = confirmation.worktree
         let remaining = worktrees.filter { $0.id != worktree.id }
         let replacement = remaining.first(where: { $0.id == activeWorktreeID })
             ?? remaining.first(where: { $0.isPrimary })
             ?? remaining.first
         worktreeStore.beginRemoval(
-            worktree: worktree,
-            projectID: project.id,
-            repoPath: project.path,
-            context: projectGroupStore.workspaceContext(for: project),
+            WorktreeRemovalRequest(
+                worktree: worktree,
+                projectID: project.id,
+                repoPath: project.path,
+                context: projectGroupStore.workspaceContext(for: project),
+                projectHookApproval: confirmation.projectHookApproval
+            ),
             onSuccess: {
                 appState.removeWorktree(
                     projectID: project.id,

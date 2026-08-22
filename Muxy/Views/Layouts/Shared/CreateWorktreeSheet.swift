@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 enum CreateWorktreeResult {
-    case created(Worktree, runSetup: Bool)
+    case created(Worktree)
     case cancelled
 }
 
@@ -173,7 +173,7 @@ struct CreateWorktreeSheet: View {
     @State private var createNewBranch = true
     @State private var localLocationSelection = WorktreeLocationSelection()
     @State private var branchLoadState = WorktreeBranchLoadState()
-    @State private var setupCommands: [String] = []
+    @State private var setupCommands: [WorktreeConfig.ResolvedCommand] = []
     @State private var runSetup = false
     @State private var inProgress = false
     @State private var errorMessage: String?
@@ -353,21 +353,29 @@ struct CreateWorktreeSheet: View {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: UIMetrics.fontCaption))
                     .foregroundStyle(MuxyTheme.diffRemoveFg)
-                Text(L10n.resource("Setup commands from .muxy/worktree.json"))
+                Text(L10n.resource("Setup commands"))
                     .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                     .foregroundStyle(MuxyTheme.fg)
             }
-            Text(L10n.resource("These commands will run in the new worktree's terminal. Only enable this if you trust this repository."))
+            Text(L10n
+                .resource(
+                    "Setup commands run in the new worktree. Review project commands before enabling them; per-machine commands are local."
+                ))
                 .font(.system(size: UIMetrics.fontCaption))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: UIMetrics.spacing1) {
-                ForEach(setupCommands, id: \.self) { command in
-                    Text(command)
-                        .font(.system(size: UIMetrics.fontCaption, design: .monospaced))
-                        .foregroundStyle(MuxyTheme.fg)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                ForEach(Array(setupCommands.enumerated()), id: \.offset) { _, command in
+                    HStack(alignment: .firstTextBaseline, spacing: UIMetrics.spacing3) {
+                        Text(command.command.command)
+                            .font(.system(size: UIMetrics.fontCaption, design: .monospaced))
+                            .foregroundStyle(MuxyTheme.fg)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Text(setupCommandSourceLabel(command.source))
+                            .font(.system(size: UIMetrics.fontCaption, weight: .medium))
+                            .foregroundStyle(MuxyTheme.fgMuted)
+                    }
                 }
             }
             .padding(UIMetrics.spacing4)
@@ -389,11 +397,15 @@ struct CreateWorktreeSheet: View {
                     .font(.system(size: UIMetrics.fontFootnote, weight: .semibold))
                     .foregroundStyle(MuxyTheme.fg)
             }
-            Text(L10n.resource("To run setup commands after creating a worktree, add .muxy/worktree.json in this repository."))
+            Text(L10n.resource("Add setup commands to this project or the per-machine worktree configuration."))
                 .font(.system(size: UIMetrics.fontCaption))
                 .foregroundStyle(MuxyTheme.fgMuted)
                 .fixedSize(horizontal: false, vertical: true)
-            Text(L10n.resource("\(project.path)/.muxy/worktree.json"))
+            Text(verbatim: "\(project.path)/.muxy/worktree.json")
+                .font(.system(size: UIMetrics.fontCaption, design: .monospaced))
+                .foregroundStyle(MuxyTheme.fg)
+                .textSelection(.enabled)
+            Text(verbatim: WorktreeConfig.globalConfigURL().path)
                 .font(.system(size: UIMetrics.fontCaption, design: .monospaced))
                 .foregroundStyle(MuxyTheme.fg)
                 .textSelection(.enabled)
@@ -414,11 +426,25 @@ struct CreateWorktreeSheet: View {
             setupCommands = []
             return
         }
-        guard let config = WorktreeConfig.load(fromProjectPath: project.path) else {
+        do {
+            setupCommands = try WorktreeConfig.resolvedSetupCommands(
+                sourceProjectPath: project.path,
+                globalConfigURL: WorktreeConfig.globalConfigURL()
+            )
+            .filter { !$0.command.command.isEmpty }
+        } catch {
             setupCommands = []
-            return
+            errorMessage = error.localizedDescription
         }
-        setupCommands = config.setup.map(\.command).filter { !$0.isEmpty }
+    }
+
+    private func setupCommandSourceLabel(_ source: WorktreeConfig.CommandSource) -> LocalizedStringResource {
+        switch source {
+        case .global:
+            "Per-machine"
+        case .project:
+            "Project"
+        }
     }
 
     private func loadLocation() {
@@ -603,7 +629,11 @@ struct CreateWorktreeSheet: View {
             path: worktreeDirectory,
             branch: branch,
             createBranch: createNewBranch,
-            baseBranch: baseBranch
+            baseBranch: baseBranch,
+            runSetup: runSetup,
+            projectHookApproval: runSetup
+                ? WorktreeConfig.ProjectHookApproval(resolvedCommands: setupCommands)
+                : nil
         )
 
         do {
@@ -620,7 +650,7 @@ struct CreateWorktreeSheet: View {
                 )
             }
             inProgress = false
-            onFinish(.created(worktree, runSetup: runSetup))
+            onFinish(.created(worktree))
         } catch {
             inProgress = false
             errorMessage = error.localizedDescription

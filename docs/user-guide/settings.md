@@ -52,6 +52,45 @@ Choose **Folder** to retain Muxy's existing folder layout. A global folder store
 `<folder>/<worktree-name>`. A project-specific template or folder selected in that dialog takes precedence over the
 global setting. Remote worktrees keep their remote workspace layout.
 
+## Worktree lifecycle hooks
+
+Muxy can run setup and teardown commands for Muxy-managed local worktrees. Put project-specific hooks in
+`<project>/.muxy/worktree.json`. The per-machine file is `$XDG_CONFIG_HOME/muxy/worktree.json` when
+`XDG_CONFIG_HOME` is set to a non-empty value, or `~/.config/muxy/worktree.json` otherwise.
+
+Both files use the same format. Commands may be strings or objects with a `command` and optional `name`:
+
+```json
+{
+  "setup": [
+    "docker compose up -d",
+    { "name": "Install dependencies", "command": "pnpm install" }
+  ],
+  "teardown": [
+    "docker compose down"
+  ]
+}
+```
+
+The creation dialog labels each setup command as **Per-machine** or **Project**. Project hook files may come from the
+repository, so review those commands before enabling them. Per-machine commands come from your local configuration.
+
+Setup commands run after Muxy creates and registers a managed local worktree. Per-machine setup runs before project
+setup. The creation dialog lists every command and keeps setup disabled until you explicitly enable it for that
+worktree. Approval covers the displayed project commands only; if the project configuration changes before execution,
+setup stops. CLI, mobile, and API creation do not run setup hooks because they have no per-run command confirmation.
+Each command runs in its own shell with a shared five-minute total budget. A failed setup command stops later setup
+commands and is logged, but does not undo the successfully created worktree.
+
+Teardown commands run before Git removes the worktree, in the reverse layer order: project teardown first, then
+per-machine teardown. Native worktree removal lists every teardown command in its confirmation. Confirming approves
+only the displayed project commands; removal stops if those commands change before execution. Removals without that
+native confirmation, including mobile, API, extension, and bulk project cleanup paths, skip project teardown and run
+only the pre-authorized per-machine commands. A teardown command failure or invalid configuration stops the removal and
+leaves the worktree registered. Every hook command uses the worktree as its working directory and receives
+`MUXY_PROJECT_PATH`, `MUXY_WORKTREE_ID`, `MUXY_WORKTREE_PATH`, `MUXY_WORKTREE_NAME`, and `MUXY_WORKTREE_BRANCH`. Hooks do
+not run for remote or externally managed worktrees.
+
 ## Focused-layout worktree grouping
 
 In **Appearance → Sidebar**, select **Tab Focused** or **Agents Focused** to show **Nest worktrees inside projects**.

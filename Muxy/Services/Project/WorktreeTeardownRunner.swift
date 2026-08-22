@@ -38,22 +38,30 @@ enum WorktreeTeardownRunner {
     static func run(
         sourceProjectPath: String,
         worktree: Worktree,
+        projectHookApproval: WorktreeConfig.ProjectHookApproval? = nil,
         timeout: TimeInterval = defaultTimeout,
         emit: @Sendable @escaping (WorktreeTeardownOutputLine) -> Void = { _ in },
+        globalConfigURL: URL = WorktreeConfig.globalConfigURL(),
         executor: Executor = execute
     ) async throws {
         guard !worktree.isExternallyManaged,
-              FileManager.default.fileExists(atPath: worktree.path),
-              let config = WorktreeConfig.load(fromProjectPath: sourceProjectPath)
+              FileManager.default.fileExists(atPath: worktree.path)
         else { return }
 
-        let commands = config.teardown
-            .map(\.command)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
+        let commands = try WorktreeConfig.commandsForExecution(
+            WorktreeConfig.resolvedTeardownCommands(
+                sourceProjectPath: sourceProjectPath,
+                globalConfigURL: globalConfigURL,
+                includeProjectCommands: projectHookApproval != nil
+            ),
+            projectHookApproval: projectHookApproval
+        )
         guard !commands.isEmpty else { return }
 
-        let environment = environment(for: worktree)
+        let environment = WorktreeHookEnvironment.values(
+            sourceProjectPath: sourceProjectPath,
+            worktree: worktree
+        )
         let deadline = OperationDeadline(timeout: timeout)
         for command in commands {
             emit(WorktreeTeardownOutputLine(channel: .command, text: "$ \(command)"))
@@ -83,15 +91,6 @@ enum WorktreeTeardownRunner {
             emit: emit
         )
     }
-
-    private static func environment(for worktree: Worktree) -> [String: String] {
-        var environment = ProcessInfo.processInfo.environment
-        environment["MUXY_WORKTREE_ID"] = worktree.id.uuidString
-        environment["MUXY_WORKTREE_PATH"] = worktree.path
-        environment["MUXY_WORKTREE_NAME"] = worktree.name
-        environment["MUXY_WORKTREE_BRANCH"] = worktree.branch ?? ""
-        return environment
-    }
 }
 
 enum WorktreeTeardownProcess {
@@ -102,8 +101,6 @@ enum WorktreeTeardownProcess {
         timeout: TimeInterval = WorktreeTeardownRunner.defaultTimeout,
         emit: @Sendable @escaping (WorktreeTeardownOutputLine) -> Void
     ) async throws -> Int32 {
-        let shell = environment["SHELL"].flatMap { FileManager.default.isExecutableFile(atPath: $0) ? $0 : nil }
-            ?? "/bin/zsh"
         let stdoutBuffer = LineBuffer { line in
             emit(WorktreeTeardownOutputLine(channel: .stdout, text: line))
         }
@@ -114,16 +111,14 @@ enum WorktreeTeardownProcess {
             stdoutBuffer.flush()
             stderrBuffer.flush()
         }
-        let result = try await SubprocessRunner.run(SubprocessRequest(
-            executablePath: shell,
-            arguments: ["-c", command],
+        return try await WorktreeHookProcess.run(
+            command: command,
             workingDirectory: workingDirectory,
             environment: environment,
             timeout: timeout,
             onStandardOutput: { stdoutBuffer.append($0) },
             onStandardError: { stderrBuffer.append($0) }
-        ))
-        return result.status
+        )
     }
 }
 

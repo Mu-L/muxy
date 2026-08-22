@@ -66,6 +66,7 @@
 "Add Prompt" = "Add Prompt";
 "Add Remote Device" = "Add Remote Device";
 "Add a remote device to connect this workspace to a server." = "Add a remote device to connect this workspace to a server.";
+"Add setup commands to this project or the per-machine worktree configuration." = "Add setup commands to this project or the per-machine worktree configuration.";
 "Additional Prompt" = "Additional Prompt";
 "Additional prompt" = "Additional prompt";
 "Advanced" = "Advanced";
@@ -247,6 +248,7 @@
 "Could not remove %@: %@" = "Could not remove %@: %@";
 "Could not remove project" = "Could not remove project";
 "Could not remove project \"%@\"" = "Could not remove project \"%@\"";
+"Could not prepare worktree removal" = "Could not prepare worktree removal";
 "Could not remove worktree \"%@\"" = "Could not remove worktree \"%@\"";
 "Could not restore project" = "Could not restore project";
 "Could not start %@" = "Could not start %@";
@@ -602,6 +604,7 @@
 "Open this release on GitHub" = "Open this release on GitHub";
 "Optional setup commands" = "Optional setup commands";
 "Optional summary" = "Optional summary";
+"Per-machine" = "Per-machine";
 "Order worktrees by most-recently-used" = "Order worktrees by most-recently-used";
 "PAUSED" = "PAUSED";
 "PR #%lld" = "PR #%lld";
@@ -654,6 +657,7 @@
 "Project 7" = "Project 7";
 "Project 8" = "Project 8";
 "Project 9" = "Project 9";
+"Project" = "Project";
 "Project Focused" = "Project Focused";
 "Project Navigation" = "Project Navigation";
 "Project name" = "Project name";
@@ -817,7 +821,7 @@
 "Set Tab Color…" = "Set Tab Color…";
 "Settings" = "Settings";
 "Settings..." = "Settings...";
-"Setup commands from .muxy/worktree.json" = "Setup commands from .muxy/worktree.json";
+"Setup commands" = "Setup commands";
 "Shell exited" = "Shell exited";
 "Shortcut" = "Shortcut";
 "Shortcut listener is inactive." = "Shortcut listener is inactive.";
@@ -1157,6 +1161,7 @@
 "The Quick Terminal shortcut listener and shell are off. Your shortcut, size, and appearance settings are preserved." = "The Quick Terminal shortcut listener and shell are off. Your shortcut, size, and appearance settings are preserved.";
 "The built-in browser is off. Browser tabs, the toolbar globe, and terminal-link opening are disabled, and terminal links open in your system browser." = "The built-in browser is off. Browser tabs, the toolbar globe, and terminal-link opening are disabled, and terminal links open in your system browser.";
 "The device will be disconnected immediately and must request approval again to reconnect." = "The device will be disconnected immediately and must request approval again to reconnect.";
+"The following teardown commands will run before removal:" = "The following teardown commands will run before removal:";
 "The folder index reached its safety limit. Refine the search location or enter a path." = "The folder index reached its safety limit. Refine the search location or enter a path.";
 "The installed Muxy CLI is an older standalone copy that cannot follow app updates.\n\nUpdate it to a wrapper that always runs the CLI bundled with your current Muxy version. macOS will ask for your administrator password." = "The installed Muxy CLI is an older standalone copy that cannot follow app updates.\n\nUpdate it to a wrapper that always runs the CLI bundled with your current Muxy version. macOS will ask for your administrator password.";
 "The selected devices will be disconnected immediately and must request approval again to reconnect." = "The selected devices will be disconnected immediately and must request approval again to reconnect.";
@@ -1168,7 +1173,7 @@
 "Theme Picker (%@)" = "Theme Picker (%@)";
 "Muxy Tip" = "Muxy Tip";
 "Transparency shows the desktop through terminal panes, the top bar, and the status bar. Vibrancy controls the native macOS material intensity and is required for the effect." = "Transparency shows the desktop through terminal panes, the top bar, and the status bar. Vibrancy controls the native macOS material intensity and is required for the effect.";
-"These commands will run in the new worktree's terminal. Only enable this if you trust this repository." = "These commands will run in the new worktree's terminal. Only enable this if you trust this repository.";
+"Setup commands run in the new worktree. Review project commands before enabling them; per-machine commands are local." = "Setup commands run in the new worktree. Review project commands before enabling them; per-machine commands are local.";
 "This PR has conflicts and cannot be merged." = "This PR has conflicts and cannot be merged.";
 "This branch is out of date with the base branch. Update it before merging." = "This branch is out of date with the base branch. Update it before merging.";
 "This device is not used by any workspace." = "This device is not used by any workspace.";
@@ -1191,7 +1196,6 @@
 "This will terminate any process currently listening on port %@." = "This will terminate any process currently listening on port %@.";
 "This worktree has uncommitted changes. Removing it will permanently discard them." = "This worktree has uncommitted changes. Removing it will permanently discard them.";
 "Tink" = "Tink";
-"To run setup commands after creating a worktree, add .muxy/worktree.json in this repository." = "To run setup commands after creating a worktree, add .muxy/worktree.json in this repository.";
 "Toast" = "Toast";
 "Toggle App Layout" = "Toggle App Layout";
 "Toggle Composer" = "Toggle Composer";

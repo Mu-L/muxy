@@ -36,6 +36,34 @@ struct WorktreeCreationRequest {
     let branch: String
     let createBranch: Bool
     let baseBranch: String?
+    let runSetup: Bool
+    let projectHookApproval: WorktreeConfig.ProjectHookApproval?
+
+    init(
+        name: String,
+        path: String,
+        branch: String,
+        createBranch: Bool,
+        baseBranch: String?,
+        runSetup: Bool = false,
+        projectHookApproval: WorktreeConfig.ProjectHookApproval? = nil
+    ) {
+        self.name = name
+        self.path = path
+        self.branch = branch
+        self.createBranch = createBranch
+        self.baseBranch = baseBranch
+        self.runSetup = runSetup
+        self.projectHookApproval = projectHookApproval
+    }
+}
+
+struct WorktreeRemovalRequest {
+    let worktree: Worktree
+    let projectID: UUID
+    let repoPath: String
+    let context: WorkspaceContext
+    let projectHookApproval: WorktreeConfig.ProjectHookApproval?
 }
 
 @MainActor
@@ -53,6 +81,7 @@ final class WorktreeStore {
     private let persistence: any WorktreePersisting
     private let listGitWorktrees: @Sendable (String) async throws -> [GitWorktreeRecord]
     private let addGitWorktree: @Sendable (String, String, String, Bool, String?) async throws -> Void
+    private let runWorktreeSetup: (String, Worktree, WorktreeConfig.ProjectHookApproval?) async -> Void
 
     init(
         persistence: any WorktreePersisting,
@@ -68,11 +97,15 @@ final class WorktreeStore {
                 baseBranch: $4
             )
         },
+        runWorktreeSetup: @escaping (String, Worktree, WorktreeConfig.ProjectHookApproval?) async -> Void = {
+            await WorktreeSetupRunner.run(sourceProjectPath: $0, worktree: $1, projectHookApproval: $2)
+        },
         projects: [Project] = []
     ) {
         self.persistence = persistence
         self.listGitWorktrees = listGitWorktrees
         self.addGitWorktree = addGitWorktree
+        self.runWorktreeSetup = runWorktreeSetup
         guard !projects.isEmpty else { return }
         loadAll(projects: projects)
     }
@@ -183,6 +216,9 @@ final class WorktreeStore {
             isPrimary: false
         )
         store(worktree, for: project.id, context: context)
+        if request.runSetup, !context.isRemote {
+            await runWorktreeSetup(project.path, worktree, request.projectHookApproval)
+        }
         return worktree
     }
 
@@ -259,13 +295,9 @@ final class WorktreeStore {
         preparingRemovalWorktreeIDs.remove(worktreeID)
     }
 
-    func beginRemoval(
-        worktree: Worktree,
-        projectID: UUID,
-        repoPath: String,
-        context: WorkspaceContext,
-        onSuccess: @escaping @MainActor () -> Void
-    ) {
+    func beginRemoval(_ request: WorktreeRemovalRequest, onSuccess: @escaping @MainActor () -> Void) {
+        let worktree = request.worktree
+        let projectID = request.projectID
         guard worktree.canBeRemoved,
               !isPreparingRemoval(worktreeID: worktree.id),
               removingWorktreeIDs.insert(worktree.id).inserted
@@ -279,8 +311,9 @@ final class WorktreeStore {
             do {
                 let cleanupResult = try await WorktreeStore.cleanupOnDisk(
                     worktree: worktree,
-                    repoPath: repoPath,
-                    context: context
+                    repoPath: request.repoPath,
+                    context: request.context,
+                    projectHookApproval: request.projectHookApproval
                 )
                 self?.removingWorktreeIDs.remove(worktree.id)
                 self?.removeWorktree(worktree.id, from: projectID)
@@ -419,6 +452,7 @@ final class WorktreeStore {
         worktree: Worktree,
         repoPath: String,
         context: WorkspaceContext = .local,
+        projectHookApproval: WorktreeConfig.ProjectHookApproval? = nil,
         force: Bool = true,
         timeout: TimeInterval = GitWorktreeService.defaultWorktreeRemovalTimeout,
         teardownEmit: @Sendable @escaping (WorktreeTeardownOutputLine) -> Void = { _ in }
@@ -434,6 +468,7 @@ final class WorktreeStore {
             try await WorktreeTeardownRunner.run(
                 sourceProjectPath: repoPath,
                 worktree: worktree,
+                projectHookApproval: projectHookApproval,
                 timeout: deadline.remaining(),
                 emit: teardownEmit
             )

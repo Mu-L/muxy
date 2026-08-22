@@ -128,9 +128,9 @@ struct ProjectRow: View {
                         showWorktreePopover = false
                         showCreateWorktreeSheet = true
                     },
-                    onRequestRemove: { worktree in
+                    onRequestRemove: { confirmation in
                         showWorktreePopover = false
-                        beginRemove(worktree: worktree)
+                        beginRemove(confirmation: confirmation)
                     }
                 )
                 .environment(appState)
@@ -312,18 +312,8 @@ struct ProjectRow: View {
 
     private func handleCreateWorktreeResult(_ result: CreateWorktreeResult) {
         switch result {
-        case let .created(worktree, runSetup):
+        case let .created(worktree):
             appState.selectWorktree(projectID: project.id, worktree: worktree)
-            if runSetup,
-               let paneID = appState.focusedArea(for: project.id)?.activeTab?.content.pane?.id
-            {
-                Task {
-                    await WorktreeSetupRunner.run(
-                        sourceProjectPath: project.path,
-                        paneID: paneID
-                    )
-                }
-            }
         case .cancelled:
             break
         }
@@ -356,17 +346,21 @@ struct ProjectRow: View {
         )
     }
 
-    private func beginRemove(worktree: Worktree) {
+    private func beginRemove(confirmation: WorktreeRemovalConfirmation) {
+        let worktree = confirmation.worktree
         let activeWorktreeID = appState.activeWorktreeID[project.id]
         let remaining = worktrees.filter { $0.id != worktree.id }
         let replacement = remaining.first(where: { $0.id == activeWorktreeID })
             ?? remaining.first(where: { $0.isPrimary })
             ?? remaining.first
         worktreeStore.beginRemoval(
-            worktree: worktree,
-            projectID: project.id,
-            repoPath: project.path,
-            context: projectGroupStore.workspaceContext(for: project),
+            WorktreeRemovalRequest(
+                worktree: worktree,
+                projectID: project.id,
+                repoPath: project.path,
+                context: projectGroupStore.workspaceContext(for: project),
+                projectHookApproval: confirmation.projectHookApproval
+            ),
             onSuccess: {
                 appState.removeWorktree(
                     projectID: project.id,
