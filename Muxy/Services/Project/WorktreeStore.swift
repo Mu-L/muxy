@@ -5,9 +5,15 @@ private let logger = Logger(subsystem: "app.muxy", category: "WorktreeStore")
 
 enum WorktreeMutationError: LocalizedError {
     case projectRemovalInProgress
+    case concurrentModification
 
     var errorDescription: String? {
-        "This project is being removed."
+        switch self {
+        case .projectRemovalInProgress:
+            "This project is being removed."
+        case .concurrentModification:
+            "Worktrees changed while they were being refreshed."
+        }
     }
 }
 
@@ -69,6 +75,7 @@ struct WorktreeRemovalRequest {
 @MainActor
 @Observable
 final class WorktreeStore {
+    private static let maxRefreshAttempts = 3
     private(set) var worktrees: [UUID: [Worktree]] = [:]
     private(set) var preparingRemovalWorktreeIDs: Set<UUID> = []
     private(set) var removingWorktreeIDs: Set<UUID> = []
@@ -82,6 +89,7 @@ final class WorktreeStore {
     private let listGitWorktrees: @Sendable (String) async throws -> [GitWorktreeRecord]
     private let addGitWorktree: @Sendable (String, String, String, Bool, String?) async throws -> Void
     private let runWorktreeSetup: (String, Worktree, WorktreeConfig.ProjectHookApproval?) async -> Void
+    private let pathResolver: any WorkspacePathResolving
 
     init(
         persistence: any WorktreePersisting,
@@ -100,12 +108,14 @@ final class WorktreeStore {
         runWorktreeSetup: @escaping (String, Worktree, WorktreeConfig.ProjectHookApproval?) async -> Void = {
             await WorktreeSetupRunner.run(sourceProjectPath: $0, worktree: $1, projectHookApproval: $2)
         },
+        pathResolver: any WorkspacePathResolving = WorkspacePathResolver.live,
         projects: [Project] = []
     ) {
         self.persistence = persistence
         self.listGitWorktrees = listGitWorktrees
         self.addGitWorktree = addGitWorktree
         self.runWorktreeSetup = runWorktreeSetup
+        self.pathResolver = pathResolver
         guard !projects.isEmpty else { return }
         loadAll(projects: projects)
     }
@@ -116,9 +126,17 @@ final class WorktreeStore {
             guard !projectsBeingRemoved.contains(project.id) else { continue }
             do {
                 var loaded = try persistence.loadWorktrees(projectID: project.id)
+                let originalIDs = loaded.map(\.id)
+                loaded = repairDuplicateIDs(loaded, projectID: project.id)
                 if !loaded.contains(where: \.isPrimary) {
                     loaded.insert(makePrimary(for: project), at: 0)
-                    try? persistence.saveWorktrees(loaded, projectID: project.id)
+                }
+                if loaded.map(\.id) != originalIDs {
+                    do {
+                        try persistence.saveWorktrees(loaded, projectID: project.id)
+                    } catch {
+                        logger.error("Failed to persist repaired worktree identifiers for project \(project.id): \(error)")
+                    }
                 }
                 setWorktrees(sortPrimaryFirst(loaded), for: project.id)
             } catch {
@@ -181,19 +199,41 @@ final class WorktreeStore {
         store(worktree, for: projectID, context: context)
     }
 
-    private func store(_ worktree: Worktree, for projectID: UUID, context: WorkspaceContext) {
+    @discardableResult
+    private func store(
+        _ worktree: Worktree,
+        for projectID: UUID,
+        context: WorkspaceContext,
+        identityPath: String? = nil,
+        identityPathsByWorktreeID: [UUID: String] = [:]
+    ) -> Worktree {
         var list = worktrees[projectID] ?? []
-        let key = GitWorktreeService.canonicalPath(worktree.path, context: context)
+        let key = GitWorktreeService.canonicalPath(identityPath ?? worktree.path, context: context)
+        let storedWorktree: Worktree
         if let index = list.firstIndex(where: {
-            !$0.isPrimary && GitWorktreeService.canonicalPath($0.path, context: context) == key
+            let existingPath = identityPathsByWorktreeID[$0.id] ?? $0.path
+            return !$0.isPrimary && GitWorktreeService.canonicalPath(existingPath, context: context) == key
         }) {
-            list[index] = worktree
+            let existing = list[index]
+            storedWorktree = Worktree(
+                id: existing.id,
+                name: worktree.name,
+                path: worktree.path,
+                branch: worktree.branch,
+                source: worktree.source,
+                isPrimary: worktree.isPrimary,
+                createdAt: existing.createdAt,
+                lastActiveAt: existing.lastActiveAt
+            )
+            list[index] = storedWorktree
         } else {
-            list.append(worktree)
+            storedWorktree = worktree
+            list.append(storedWorktree)
         }
         setWorktrees(sortPrimaryFirst(list), for: projectID)
         save(projectID: projectID)
-        onWorktreesChanged?(projectID, worktree.id)
+        onWorktreesChanged?(projectID, storedWorktree.id)
+        return storedWorktree
     }
 
     func createWorktree(
@@ -204,7 +244,13 @@ final class WorktreeStore {
         guard beginProjectMutation(project.id) else {
             throw WorktreeMutationError.projectRemovalInProgress
         }
-        defer { endProjectMutation(project.id) }
+        var requiresRefresh = false
+        defer {
+            endProjectMutation(project.id)
+            if requiresRefresh {
+                scheduleRefresh(project: project, context: context)
+            }
+        }
         let parentPath = parentDirectory(of: request.path, context: context)
         try await context.fileOps.makeDirectory(at: parentPath)
 
@@ -215,11 +261,46 @@ final class WorktreeStore {
             branch: request.branch,
             isPrimary: false
         )
-        store(worktree, for: project.id, context: context)
-        if request.runSetup, !context.isRemote {
-            await runWorktreeSetup(project.path, worktree, request.projectHookApproval)
+        var storedWorktree: Worktree?
+        for _ in 0 ..< Self.maxRefreshAttempts {
+            let snapshot = worktrees[project.id] ?? []
+            do {
+                let identityPaths = try await pathResolver.resolve(
+                    paths: [request.path] + snapshot.map(\.path),
+                    relativeTo: project.path,
+                    context: context,
+                    timeout: SSHCommandRunner.defaultTimeout
+                )
+                guard identityPaths.count == snapshot.count + 1 else {
+                    throw WorkspacePathResolverError.invalidOutput
+                }
+                guard Self.hasSameRefreshState(snapshot, worktrees[project.id] ?? []) else { continue }
+                var identityPathsByWorktreeID: [UUID: String] = [:]
+                for (existingWorktree, resolution) in zip(snapshot, identityPaths.dropFirst()) {
+                    identityPathsByWorktreeID[existingWorktree.id] = resolution.path
+                }
+                storedWorktree = store(
+                    worktree,
+                    for: project.id,
+                    context: context,
+                    identityPath: identityPaths.first?.path,
+                    identityPathsByWorktreeID: identityPathsByWorktreeID
+                )
+                break
+            } catch {
+                logger.error("Failed to resolve paths after creating worktree for project \(project.id): \(error)")
+                break
+            }
         }
-        return worktree
+        if storedWorktree == nil {
+            requiresRefresh = true
+            storedWorktree = store(worktree, for: project.id, context: context)
+        }
+        let createdWorktree = storedWorktree ?? worktree
+        if request.runSetup, !context.isRemote {
+            await runWorktreeSetup(project.path, createdWorktree, request.projectHookApproval)
+        }
+        return createdWorktree
     }
 
     private func addWorktreeForContext(
@@ -340,73 +421,170 @@ final class WorktreeStore {
         }
         defer { endProjectMutation(project.id) }
         ensurePrimary(for: project)
-        let records = try await listWorktreesForContext(project: project, context: context)
-            .filter { !$0.isBare && !$0.isPrunable }
-        var list = worktrees[project.id] ?? []
-        let projectKey = try await resolvedProjectKey(project: project, context: context)
-        let recordKeys = Set(records.map { GitWorktreeService.canonicalPath($0.path, context: context) })
+        for _ in 0 ..< Self.maxRefreshAttempts {
+            try Task.checkCancellation()
+            let snapshot = worktrees[project.id] ?? []
+            let records = try await listWorktreesForContext(project: project, context: context)
+                .filter { !$0.isBare && !$0.isPrunable }
+            var list = snapshot
+            let paths = [project.path] + list.map(\.path) + records.map(\.path)
+            let resolutions = try await pathResolver.resolve(
+                paths: paths,
+                relativeTo: project.path,
+                context: context,
+                timeout: SSHCommandRunner.defaultTimeout
+            )
+            guard resolutions.count == paths.count else {
+                throw GitWorktreeService.GitWorktreeError.commandFailed("Failed to resolve worktree paths.")
+            }
+            let current = worktrees[project.id] ?? []
+            guard Self.hasSameRefreshState(snapshot, current) else { continue }
+            var currentByID: [UUID: Worktree] = [:]
+            for worktree in current {
+                currentByID[worktree.id] = worktree
+            }
+            for index in list.indices {
+                list[index].lastActiveAt = currentByID[list[index].id]?.lastActiveAt
+            }
+            let projectKey = GitWorktreeService.canonicalPath(resolutions[0].path, context: context)
+            let listResolutions = resolutions.dropFirst().prefix(list.count)
+            let recordResolutions = resolutions.dropFirst(1 + list.count)
+            var pathKeysByID: [UUID: String] = [:]
+            for (worktree, resolution) in zip(list, listResolutions) {
+                pathKeysByID[worktree.id] = GitWorktreeService.canonicalPath(resolution.path, context: context)
+            }
+            let resolvedRecordKeys = recordResolutions.map {
+                GitWorktreeService.canonicalPath($0.path, context: context)
+            }
+            let recordKeys = Set(resolvedRecordKeys)
 
-        if let primaryIndex = list.firstIndex(where: \.isPrimary) {
-            list[primaryIndex].path = project.path
-            list[primaryIndex].name = project.name
-        } else {
-            list.insert(makePrimary(for: project), at: 0)
-        }
+            if let primaryIndex = list.firstIndex(where: \.isPrimary) {
+                list[primaryIndex].path = project.path
+                list[primaryIndex].name = project.name
+                pathKeysByID[list[primaryIndex].id] = projectKey
+            } else {
+                let primary = makePrimary(for: project)
+                list.insert(primary, at: 0)
+                pathKeysByID[primary.id] = projectKey
+            }
 
-        var existingByKey: [String: Worktree] = [:]
-        for worktree in list {
-            let key = GitWorktreeService.canonicalPath(worktree.path, context: context)
-            if let existing = existingByKey[key] {
-                if worktree.isPrimary, !existing.isPrimary {
+            var existingByKey: [String: Worktree] = [:]
+            for worktree in list {
+                let key = pathKeysByID[worktree.id]
+                    ?? GitWorktreeService.canonicalPath(worktree.path, context: context)
+                guard let existing = existingByKey[key] else {
+                    existingByKey[key] = worktree
+                    continue
+                }
+                if worktree.isPrimary && !existing.isPrimary
+                    || existing.isExternallyManaged && !worktree.isExternallyManaged
+                {
                     existingByKey[key] = worktree
                 }
-            } else {
-                existingByKey[key] = worktree
             }
-        }
 
-        for record in records {
-            let recordKey = GitWorktreeService.canonicalPath(record.path, context: context)
-            if recordKey == projectKey {
-                if let primaryIndex = list.firstIndex(where: \.isPrimary) {
-                    list[primaryIndex].branch = record.branch
+            for (record, recordKey) in zip(records, resolvedRecordKeys) {
+                if recordKey == projectKey {
+                    if let primaryIndex = list.firstIndex(where: \.isPrimary) {
+                        list[primaryIndex].branch = record.branch
+                    }
+                    continue
                 }
-                continue
-            }
 
-            if let existing = existingByKey[recordKey],
-               let index = list.firstIndex(where: { $0.id == existing.id })
-            {
-                if list[index].isPrimary {
-                    list[index].name = project.name
-                    list[index].path = project.path
-                } else if record.branch != nil, list[index].name == list[index].branch {
-                    list[index].name = defaultName(for: record)
+                if let existing = existingByKey[recordKey],
+                   let index = list.firstIndex(where: { $0.id == existing.id })
+                {
+                    if list[index].isPrimary {
+                        list[index].name = project.name
+                        list[index].path = project.path
+                    } else if record.branch != nil, list[index].name == list[index].branch {
+                        list[index].name = defaultName(for: record)
+                    }
+                    list[index].branch = record.branch
+                    continue
                 }
-                list[index].branch = record.branch
-                continue
+
+                let imported = Worktree(
+                    name: defaultName(for: record),
+                    path: record.path,
+                    branch: record.branch,
+                    source: .external,
+                    isPrimary: false
+                )
+                list.append(imported)
+                pathKeysByID[imported.id] = recordKey
             }
 
-            list.append(Worktree(
-                name: defaultName(for: record),
-                path: record.path,
-                branch: record.branch,
-                source: .external,
-                isPrimary: false
+            let filtered = list.filter {
+                let key = pathKeysByID[$0.id]
+                    ?? GitWorktreeService.canonicalPath($0.path, context: context)
+                if !$0.isPrimary, key == projectKey {
+                    return false
+                }
+                return !$0.isExternallyManaged || recordKeys.contains(key)
+            }
+            let sorted = sortPrimaryFirst(collapseDuplicatePaths(
+                filtered,
+                context: context,
+                pathKeysByID: pathKeysByID
             ))
+            try Task.checkCancellation()
+            setWorktrees(sorted, for: project.id)
+            save(projectID: project.id)
+            onWorktreesChanged?(project.id, nil)
+            return sorted
         }
-
-        let filtered = list.filter {
-            !$0.isExternallyManaged || recordKeys.contains(GitWorktreeService.canonicalPath($0.path, context: context))
-        }
-        let sorted = sortPrimaryFirst(collapseDuplicatePaths(filtered, context: context))
-        setWorktrees(sorted, for: project.id)
-        save(projectID: project.id)
-        onWorktreesChanged?(project.id, nil)
-        return sorted
+        throw WorktreeMutationError.concurrentModification
     }
 
-    private func collapseDuplicatePaths(_ list: [Worktree], context: WorkspaceContext) -> [Worktree] {
+    private static func hasSameRefreshState(_ lhs: [Worktree], _ rhs: [Worktree]) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        return zip(lhs, rhs).allSatisfy {
+            $0.id == $1.id
+                && $0.name == $1.name
+                && $0.path == $1.path
+                && $0.branch == $1.branch
+                && $0.source == $1.source
+                && $0.isPrimary == $1.isPrimary
+                && $0.createdAt == $1.createdAt
+        }
+    }
+
+    private func scheduleRefresh(project: Project, context: WorkspaceContext) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                _ = try await refreshFromGit(project: project, context: context)
+            } catch {
+                logger.error("Worktree reconciliation failed for project \(project.id): \(error)")
+            }
+        }
+    }
+
+    private func repairDuplicateIDs(_ list: [Worktree], projectID: UUID) -> [Worktree] {
+        var seen: Set<UUID> = []
+        return list.map { worktree in
+            guard seen.insert(worktree.id).inserted else {
+                logger.warning("Repairing duplicate worktree identifier \(worktree.id) for project \(projectID)")
+                return Worktree(
+                    name: worktree.name,
+                    path: worktree.path,
+                    branch: worktree.branch,
+                    source: worktree.source,
+                    isPrimary: worktree.isPrimary,
+                    createdAt: worktree.createdAt,
+                    lastActiveAt: worktree.lastActiveAt
+                )
+            }
+            return worktree
+        }
+    }
+
+    private func collapseDuplicatePaths(
+        _ list: [Worktree],
+        context: WorkspaceContext,
+        pathKeysByID: [UUID: String]
+    ) -> [Worktree] {
         var indexByKey: [String: Int] = [:]
         var result: [Worktree] = []
         for worktree in list {
@@ -414,7 +592,8 @@ final class WorktreeStore {
                 result.append(worktree)
                 continue
             }
-            let key = GitWorktreeService.canonicalPath(worktree.path, context: context)
+            let key = pathKeysByID[worktree.id]
+                ?? GitWorktreeService.canonicalPath(worktree.path, context: context)
             guard let existingIndex = indexByKey[key] else {
                 indexByKey[key] = result.count
                 result.append(worktree)
@@ -425,16 +604,6 @@ final class WorktreeStore {
             }
         }
         return result
-    }
-
-    private func resolvedProjectKey(project: Project, context: WorkspaceContext) async -> String {
-        let fallback = GitWorktreeService.canonicalPath(project.path, context: context)
-        guard context.isRemote else { return fallback }
-        let resolved = await GitWorktreeService.shared.resolvedRepositoryRoot(
-            repoPath: project.path,
-            context: context
-        )
-        return resolved ?? fallback
     }
 
     private func listWorktreesForContext(
@@ -473,7 +642,7 @@ final class WorktreeStore {
                 emit: teardownEmit
             )
         }
-        try await GitWorktreeService.shared.removeWorktree(
+        let removedPath = try await GitWorktreeService.shared.removeWorktree(
             repoPath: repoPath,
             path: worktree.path,
             force: force,
@@ -482,13 +651,13 @@ final class WorktreeStore {
         )
 
         let directoryRemoved = await (try? context.fileOps.exists(
-            at: worktree.path,
+            at: removedPath,
             timeout: deadline.remaining()
         )).map { !$0 }
         guard directoryRemoved == true, !context.isRemote, !worktree.isExternallyManaged else {
             return cleanupResult(directoryRemoved: directoryRemoved)
         }
-        await removeParentDirectoryIfEmpty(for: worktree.path)
+        await removeParentDirectoryIfEmpty(for: removedPath)
         return .removed
     }
 
@@ -522,7 +691,7 @@ final class WorktreeStore {
         let children = (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? []
         for child in children {
             let childPath = root.appendingPathComponent(child).path
-            try? await GitWorktreeService.shared.removeWorktree(
+            _ = try? await GitWorktreeService.shared.removeWorktree(
                 repoPath: project.path,
                 path: childPath,
                 force: true
